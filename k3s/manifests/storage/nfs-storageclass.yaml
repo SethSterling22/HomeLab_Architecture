@@ -1,0 +1,44 @@
+---
+# k3s/manifests/storage/nfs-storageclass.yaml
+# StorageClass que usa Aery (192.168.1.20) como backend NFS
+# Requiere: helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-aery
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: cluster.local/nfs-subdir-external-provisioner
+parameters:
+  archiveOnDelete: "false"
+  onDelete: "delete"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+---
+# PVC de ejemplo para Ollama (modelos grandes)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: ai
+spec:
+  storageClassName: nfs-aery
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+---
+# PVC para datos de OpenClaw
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openclaw-data-pvc
+  namespace: ai
+spec:
+  storageClassName: nfs-aery
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

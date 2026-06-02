@@ -1,0 +1,130 @@
+---
+# k3s/manifests/ai/openclaw.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: ai
+  labels:
+    app: openclaw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openclaw
+  template:
+    metadata:
+      labels:
+        app: openclaw
+    spec:
+      # Preferir Sram u Ocra para la UI
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: ["sram", "ocra"]
+      containers:
+        - name: openclaw
+          image: openclaw/openclaw:latest   # reemplaza con la imagen real
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama.ai.svc.cluster.local:11434"
+            - name: WEBUI_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: secret-key
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: openclaw-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openclaw
+  namespace: ai
+spec:
+  selector:
+    app: openclaw
+  ports:
+    - port: 80
+      targetPort: 3000
+  type: ClusterIP
+---
+# k3s/manifests/ai/hermes.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: ai
+  labels:
+    app: hermes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes
+  template:
+    metadata:
+      labels:
+        app: hermes
+    spec:
+      containers:
+        - name: hermes
+          image: ghcr.io/teknium1/hermes:latest   # reemplaza con imagen real
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: OLLAMA_URL
+              value: "http://ollama.ai.svc.cluster.local:11434"
+            - name: DEFAULT_MODEL
+              value: "hermes2-pro-llama3:8b"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: ai
+spec:
+  selector:
+    app: hermes
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+# Secret placeholder — rellena con valores reales o usa Sealed Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openclaw-secrets
+  namespace: ai
+type: Opaque
+stringData:
+  secret-key: "cambia-por-un-secreto-seguro"   # openssl rand -hex 32

@@ -1,0 +1,55 @@
+---
+# ansible/playbooks/bootstrap.yml
+# Setup base para todos los nodos Debian (excepto Aery/Proxmox)
+- name: Bootstrap nodos Debian
+  hosts: k3s_master:k3s_workers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verificar conectividad
+      ping:
+
+    - name: Actualizar apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  roles:
+    - role: common
+
+  post_tasks:
+    - name: Mostrar info del nodo
+      debug:
+        msg: "✅ {{ inventory_hostname }} ({{ ansible_default_ipv4.address }}) — bootstrap completo"
+
+- name: Bootstrap Tailscale en gateway-vm
+  hosts: nitro-gateway
+  become: true
+
+  tasks:
+    - name: Instalar Tailscale
+      shell: |
+        curl -fsSL https://tailscale.com/install.sh | sh
+      args:
+        creates: /usr/bin/tailscale
+
+    - name: Activar Tailscale como subnet router
+      shell: |
+        tailscale up \
+          --authkey="{{ tailscale_auth_key }}" \
+          --advertise-routes="{{ tailscale_subnet_route }}" \
+          --accept-dns=false
+      register: ts_result
+      changed_when: "'already' not in ts_result.stdout"
+
+    - name: Habilitar IP forwarding (necesario para subnet router)
+      sysctl:
+        name: "{{ item }}"
+        value: "1"
+        sysctl_set: true
+        state: present
+        reload: true
+      loop:
+        - net.ipv4.ip_forward
+        - net.ipv6.conf.all.forwarding

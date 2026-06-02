@@ -1,0 +1,119 @@
+---
+# k3s/manifests/ingress/ingressroutes.yaml
+# Traefik IngressRoutes para exponer servicios
+# Accesibles en: http://<IP-de-cualquier-nodo>/<servicio>
+
+# ── OpenClaw ─────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: openclaw
+  namespace: ai
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: PathPrefix(`/openclaw`)
+      kind: Rule
+      middlewares:
+        - name: strip-openclaw
+      services:
+        - name: openclaw
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-openclaw
+  namespace: ai
+spec:
+  stripPrefix:
+    prefixes:
+      - /openclaw
+
+---
+# ── Hermes ───────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: hermes
+  namespace: ai
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/hermes`)
+      kind: Rule
+      middlewares:
+        - name: strip-hermes
+      services:
+        - name: hermes
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-hermes
+  namespace: ai
+spec:
+  stripPrefix:
+    prefixes:
+      - /hermes
+
+---
+# ── Grafana ──────────────────────────────────────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/grafana`)
+      kind: Rule
+      services:
+        - name: grafana
+          port: 80
+
+---
+# ── Traefik Dashboard (solo acceso interno) ───────────────────────
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.homelab.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      middlewares:
+        - name: traefik-auth
+          namespace: kube-system
+      services:
+        - name: api@internal
+          kind: TraefikService
+---
+# Basic auth para dashboard de Traefik
+# Genera con: htpasswd -nb admin tupassword | base64
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-auth
+  namespace: kube-system
+spec:
+  basicAuth:
+    secret: traefik-dashboard-auth
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-dashboard-auth
+  namespace: kube-system
+type: Opaque
+stringData:
+  users: "admin:$apr1$xxxxx"   # reemplaza con hash real de htpasswd

@@ -1,0 +1,91 @@
+---
+# ansible/roles/common/tasks/main.yml
+- name: Instalar paquetes base
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - htop
+      - iotop
+      - net-tools
+      - nfs-common        # para montar NFS de Aery
+      - wakeonlan          # para enviar magic packets
+      - open-iscsi        # cliente iSCSI
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - unattended-upgrades
+    state: present
+    update_cache: true
+
+- name: Configurar zona horaria
+  timezone:
+    name: America/Puerto_Rico
+
+- name: Deshabilitar swap (requerido por k3s)
+  shell: |
+    swapoff -a
+    sed -i '/ swap / s/^/#/' /etc/fstab
+  changed_when: false
+
+- name: Configurar parámetros de kernel para k3s
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: "net.bridge.bridge-nf-call-iptables",  value: "1" }
+    - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { key: "net.ipv4.ip_forward",                  value: "1" }
+    - { key: "vm.max_map_count",                     value: "262144" }
+
+- name: Cargar módulos de kernel necesarios
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+
+- name: Persistir módulos en el boot
+  copy:
+    content: |
+      br_netfilter
+      overlay
+    dest: /etc/modules-load.d/k3s.conf
+
+- name: Configurar autenticación SSH solo por llave
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: "^#?PasswordAuthentication", line: "PasswordAuthentication no" }
+    - { regexp: "^#?PermitRootLogin",        line: "PermitRootLogin prohibit-password" }
+    - { regexp: "^#?PubkeyAuthentication",   line: "PubkeyAuthentication yes" }
+  notify: restart sshd
+
+- name: Instalar llave SSH pública
+  authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ ssh_public_key }}"
+    state: present
+
+- name: Configurar actualizaciones de seguridad automáticas
+  copy:
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+
+handlers:
+  - name: restart sshd
+    service:
+      name: sshd
+      state: restarted

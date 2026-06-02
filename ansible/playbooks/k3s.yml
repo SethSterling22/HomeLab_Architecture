@@ -1,0 +1,122 @@
+---
+# ansible/playbooks/k3s.yml
+# Instala k3s: primero el master, luego los workers permanentes
+- name: Instalar k3s master
+  hosts: k3s_master
+  become: true
+
+  tasks:
+    - name: Instalar k3s como server
+      shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          K3S_TOKEN="{{ k3s_token }}" \
+          sh -s - server \
+            --disable traefik \
+            --disable servicelb \
+            --write-kubeconfig-mode 644 \
+            --node-name "{{ inventory_hostname }}" \
+            --tls-san "{{ ansible_host }}"
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Esperar a que el master esté listo
+      wait_for:
+        port: 6443
+        host: "{{ ansible_host }}"
+        delay: 10
+        timeout: 120
+
+    - name: Obtener kubeconfig
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../../kubeconfig.yaml"
+        flat: true
+
+    - name: Parchear kubeconfig con IP real
+      delegate_to: localhost
+      become: false
+      replace:
+        path: "{{ playbook_dir }}/../../kubeconfig.yaml"
+        regexp: "127.0.0.1"
+        replace: "{{ ansible_host }}"
+
+    - name: Instalar Helm
+      shell: |
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Instalar Traefik via Helm
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        helm repo add traefik https://helm.traefik.io/traefik
+        helm repo update
+        helm upgrade --install traefik traefik/traefik \
+          --namespace kube-system \
+          --set service.type=LoadBalancer \
+          --wait
+      register: traefik_result
+      changed_when: "'deployed' in traefik_result.stdout or 'upgraded' in traefik_result.stdout"
+
+- name: Instalar k3s en workers permanentes
+  hosts: k3s_workers_permanent
+  become: true
+  serial: 1   # Uno por uno para evitar problemas de etcd
+
+  tasks:
+    - name: Instalar k3s como agent
+      shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          K3S_TOKEN="{{ k3s_token }}" \
+          K3S_URL="https://{{ hostvars['nitro-k3s-master']['ansible_host'] }}:6443" \
+          sh -s - agent \
+            --node-name "{{ inventory_hostname }}"
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Verificar que el worker se registró
+      delegate_to: "nitro-k3s-master"
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl wait node/{{ inventory_hostname }} --for=condition=Ready --timeout=120s
+      register: node_ready
+      changed_when: false
+
+    - name: Etiquetar worker
+      delegate_to: "nitro-k3s-master"
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl label node {{ inventory_hostname }} homelab/always-on=true --overwrite
+      changed_when: true
+
+- name: Aplicar manifests base del clúster
+  hosts: k3s_master
+  become: true
+
+  tasks:
+    - name: Copiar manifests al master
+      copy:
+        src: "{{ playbook_dir }}/../../k3s/manifests/"
+        dest: /tmp/k3s-manifests/
+
+    - name: Aplicar namespaces
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl apply -f /tmp/k3s-manifests/namespaces/
+
+    - name: Aplicar storage (NFS provisioner)
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl apply -f /tmp/k3s-manifests/storage/
+
+    - name: Aplicar stack AI
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl apply -f /tmp/k3s-manifests/ai/
+
+    - name: Aplicar ingress routes
+      shell: |
+        export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        kubectl apply -f /tmp/k3s-manifests/ingress/

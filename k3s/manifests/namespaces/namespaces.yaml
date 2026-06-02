@@ -1,0 +1,23 @@
+---
+# k3s/manifests/namespaces/namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai
+  labels:
+    homelab/tier: ai
+    app.kubernetes.io/managed-by: kubectl
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    homelab/tier: monitoring
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+  labels:
+    homelab/tier: storage

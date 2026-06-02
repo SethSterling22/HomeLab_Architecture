@@ -1,0 +1,60 @@
+# ansible/inventory/hosts.yml
+# Copia este archivo como hosts.yml y rellena con tus IPs y MACs reales
+---
+all:
+  children:
+
+    # ── Nodos siempre encendidos ─────────────────────────────────
+    always_on:
+      hosts:
+        nitro:
+          ansible_host: 192.168.1.10
+          ansible_user: root
+          role: proxmox_hypervisor
+        aery:
+          ansible_host: 192.168.1.20
+          ansible_user: admin
+          role: nas
+          synology: true
+
+    # ── Workers k3s permanentes ──────────────────────────────────
+    k3s_workers_permanent:
+      hosts:
+        sram:
+          ansible_host: 192.168.1.30
+          ansible_user: ubuntu
+          k3s_role: worker
+        ocra:
+          ansible_host: 192.168.1.40
+          ansible_user: ubuntu
+          k3s_role: worker
+
+    # ── Workers on-demand (WOL) ──────────────────────────────────
+    k3s_workers_ondemand:
+      hosts:
+        xelor:
+          ansible_host: 192.168.1.50
+          ansible_user: ubuntu
+          k3s_role: worker
+          wol_mac: "AA:BB:CC:DD:EE:01"   # ← reemplaza con MAC real
+          wol_broadcast: "192.168.1.255"
+        sacro:
+          ansible_host: 192.168.1.60
+          ansible_user: ubuntu
+          k3s_role: worker
+          wol_mac: "AA:BB:CC:DD:EE:02"   # ← reemplaza con MAC real
+          wol_broadcast: "192.168.1.255"
+
+    # ── Grupos lógicos ───────────────────────────────────────────
+    k3s_workers:
+      children:
+        k3s_workers_permanent:
+        k3s_workers_ondemand:
+
+    # El master k3s corre como VM dentro de Nitro
+    k3s_master:
+      hosts:
+        nitro-k3s-master:
+          ansible_host: 192.168.1.11   # IP de la VM master dentro de Proxmox
+          ansible_user: ubuntu
+          k3s_role: master
