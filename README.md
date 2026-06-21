@@ -1,133 +1,144 @@
-# 🏠 HomeLab Infrastructure
-
-Infraestructura completa para un clúster doméstico de 6 nodos basado en **k3s**, **Proxmox VE**, **Tailscale** y **Wake-on-LAN**, con soporte para modelos de AI locales vía GPU.
-
+# HomeLab Infrastructure
+ 
+Complete infrastructure for a 6-node home cluster based on **k3s**, **Proxmox VE**, **Tailscale** and **Wake-on-LAN**, with support for local AI models via GPU.
+ 
 ---
-
-## 📋 Tabla de contenidos
-
-- [Nodos y roles](#nodos-y-roles)
-- [Arquitectura de red](#arquitectura-de-red)
-- [Diagramas](#diagramas)
-- [Requisitos previos](#requisitos-previos)
-- [Instalación rápida](#instalación-rápida)
-- [Uso diario](#uso-diario)
-- [Stack de servicios](#stack-de-servicios)
-- [Estructura del proyecto](#estructura-del-proyecto)
-
+ 
+## Table of Contents
+ 
+- [Nodes and Roles](#nodes-and-roles)
+- [Network Architecture](#network-architecture)
+- [Diagrams](#diagrams)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Daily Usage](#daily-usage)
+- [Service Stack](#service-stack)
+- [Project Structure](#project-structure)
+- [Security Notes](#security-notes)
 ---
-
-## Nodos y roles
-
-| Nodo | OS base | Rol | Disponibilidad |
-|------|---------|-----|----------------|
-| **Nitro** | Proxmox VE 8 | Hipervisor principal · k3s master VM · GPU passthrough para Ollama | 24/7 |
-| **Aery** | Synology DSM | NAS · NFS/iSCSI persistent volumes · Backup | 24/7 |
-| **Sram** | Debian 12 (bare metal) | k3s worker · entornos de desarrollo | 24/7 |
-| **Ocra** | Debian 12 (bare metal) | k3s worker · thin client para AI (UI only) | 24/7 |
-| **Xelor** | Debian 12 (bare metal) | k3s worker on-demand · staging · CI/CD | On-demand |
-| **Sacro** | Debian 12 (bare metal) | k3s worker on-demand · observabilidad (Grafana / Loki) | On-demand |
-
-### VMs dentro de Nitro (Proxmox)
-
-| VM | vCPUs | RAM | Propósito |
-|----|-------|-----|-----------|
-| `nitro-k3s-master` | 4 | 8 GB | Nodo master del clúster k3s |
-| `nitro-ollama` | 6 | 16 GB | Ollama + GPU passthrough — modelos locales |
-| `nitro-gateway` | 2 | 4 GB | Tailscale subnet router + WOL relay |
-
+ 
+## Nodes and Roles
+ 
+| Node | Base OS | Role | Availability |
+|------|---------|------|--------------|
+| **Sadida** | Proxmox VE 8 (Debian 13 Trixie kernel) | Hypervisor · k3s control-plane · GPU passthrough for Ollama | 24/7 |
+| **Aery** | Synology DSM | NAS · NFS persistent volumes (`/volume1/homes`) · Backup | 24/7 |
+| **Sram** | Debian 13 Trixie (bare metal) | k3s worker · development environments | 24/7 |
+| **Ocra** | Debian 13 Trixie (bare metal) | k3s worker · AI thin client (UI only) | 24/7 |
+| **Xelor** | Debian 13 Trixie (bare metal) | k3s worker on-demand · staging · CI/CD | On-demand |
+| **Sacro** | Debian 13 Trixie (bare metal) | k3s worker on-demand · observability (Grafana / Loki) | On-demand |
+ 
+### Node IPs
+ 
+| Node | IP | Role |
+|------|----|------|
+| Sadida (Proxmox) | `192.168.68.10` | k3s control-plane |
+| Aery (Synology) | `192.168.68.190` | NFS server |
+| Ocra | `192.168.68.100` | k3s worker |
+| Sram | `192.168.68.108` | k3s worker |
+| Xelor | `192.168.68.114` | k3s worker (on-demand) |
+| Sacro | `192.168.68.115` | k3s worker (on-demand) |
+ 
+### k3s Cluster
+ 
+The k3s control-plane runs directly on Sadida (Proxmox host), not inside a VM. Workers are bare-metal Debian 13 nodes joined via Tailscale IP for network resilience.
+ 
+```
+k3s v1.35.5+k3s1
+Subnet: 192.168.68.0/24
+```
+ 
 ---
-
-## Arquitectura de red
-
+ 
+## Network Architecture
+ 
 ```
 Internet
    │
-   └── Router doméstico (192.168.1.1)
+   └── Home Router (192.168.68.1)
           │
-          └── Switch Ethernet (gigabit)
-                 ├── Nitro      192.168.1.10  (+ VLAN mgmt)
-                 ├── Aery       192.168.1.20
-                 ├── Sram       192.168.1.30
-                 ├── Ocra       192.168.1.40
-                 ├── Xelor      192.168.1.50  (WOL MAC en config)
-                 └── Sacro      192.168.1.60  (WOL MAC en config)
+          └── Gigabit Ethernet Switch
+                 ├── Sadida     192.168.68.10   (Proxmox + k3s master)
+                 ├── Aery       192.168.68.190  (Synology NAS)
+                 ├── Ocra       192.168.68.100  (k3s worker)
+                 ├── Sram       192.168.68.108  (k3s worker)
+                 ├── Xelor      192.168.68.114  (k3s worker, on-demand)
+                 └── Sacro      192.168.68.115  (k3s worker, on-demand)
 ```
-
-**VLANs recomendadas:**
-- `VLAN 10` — management (SSH, Proxmox UI, Tailscale)
-- `VLAN 20` — data (NFS, iSCSI, tráfico k3s interno)
-
+ 
+**Tailscale mesh VPN** runs on all nodes, providing stable addressing independent of local network changes. Workers join the k3s cluster using Tailscale IPs so the cluster remains functional across network reconfigurations.
+ 
+**NFS mount on Sadida:**
+```
+192.168.68.190:/volume1/homes → /mnt/data
+```
+Mounted read-write via `/etc/fstab` with `_netdev` flag, auto-mounts on reboot after network is available.
+ 
 ---
-
-## Diagramas
-
-### Vista general de nodos
-
+ 
+## Diagrams
+ 
+### Node Overview
+ 
 ```mermaid
 graph TB
-    subgraph always_on["🟢 Siempre encendidos"]
-        NITRO["🖥️ Nitro\nProxmox VE · GPU\n192.168.1.10"]
-        AERY["💾 Aery\nSynology DSM · NAS\n192.168.1.20"]
+    subgraph always_on["🟢 Always On"]
+        SADIDA["🖥️ Sadida\nProxmox VE · k3s master\n192.168.68.10"]
+        AERY["💾 Aery\nSynology DSM · NAS\n192.168.68.190"]
     end
-
+ 
     subgraph workers_24["🔵 Workers 24/7"]
-        SRAM["💻 Sram\nDebian 12 · k3s worker\n192.168.1.30"]
-        OCRA["💻 Ocra\nDebian 12 · k3s worker\n192.168.1.40"]
+        SRAM["💻 Sram\nDebian 13 · k3s worker\n192.168.68.108"]
+        OCRA["💻 Ocra\nDebian 13 · k3s worker\n192.168.68.100"]
     end
-
-    subgraph workers_od["🟡 Workers on-demand (WOL)"]
-        XELOR["💤 Xelor\nDebian 12 · staging\n192.168.1.50"]
-        SACRO["💤 Sacro\nDebian 12 · observabilidad\n192.168.1.60"]
+ 
+    subgraph workers_od["🟡 Workers On-Demand (WOL)"]
+        XELOR["💤 Xelor\nDebian 13 · staging\n192.168.68.114"]
+        SACRO["💤 Sacro\nDebian 13 · observability\n192.168.68.115"]
     end
-
-    subgraph nitro_vms["VMs en Nitro"]
-        MASTER["k3s-master\n8GB RAM"]
-        OLLAMA["ollama-vm\n16GB RAM + GPU"]
-        GATEWAY["gateway-vm\nTailscale + WOL"]
+ 
+    subgraph network["🌐 Network"]
+        SWITCH["Gigabit Switch\nEthernet"]
+        TAILSCALE["Tailscale Mesh VPN\nAll nodes connected"]
     end
-
-    subgraph network["🌐 Red"]
-        SWITCH["Switch Gigabit\nEthernet"]
-        TAILSCALE["Tailscale Mesh VPN\nSubnet router → Nitro"]
+ 
+    subgraph storage["💽 Storage"]
+        NFS["Aery NFS\n/volume1/homes\n→ /mnt/data on Sadida"]
     end
-
-    NITRO --> MASTER
-    NITRO --> OLLAMA
-    NITRO --> GATEWAY
-
-    MASTER -->|k3s API| SRAM
-    MASTER -->|k3s API| OCRA
-    MASTER -.->|on-demand| XELOR
-    MASTER -.->|on-demand| SACRO
-
-    OLLAMA -->|API :11434| OCRA
-    AERY -->|NFS/iSCSI| MASTER
-
-    GATEWAY -->|WOL broadcast| XELOR
-    GATEWAY -->|WOL broadcast| SACRO
-    GATEWAY -->|subnet route| TAILSCALE
-
-    SWITCH --- NITRO
+ 
+    SADIDA -->|k3s API| SRAM
+    SADIDA -->|k3s API| OCRA
+    SADIDA -.->|on-demand| XELOR
+    SADIDA -.->|on-demand| SACRO
+    AERY -->|NFS mount| SADIDA
+ 
+    SWITCH --- SADIDA
     SWITCH --- AERY
     SWITCH --- SRAM
     SWITCH --- OCRA
     SWITCH --- XELOR
     SWITCH --- SACRO
+ 
+    TAILSCALE --- SADIDA
+    TAILSCALE --- SRAM
+    TAILSCALE --- OCRA
+    TAILSCALE --- XELOR
+    TAILSCALE --- SACRO
+    TAILSCALE --- AERY
 ```
-
-### Flujo de servicios AI
-
+ 
+### AI Service Flow
+ 
 ```mermaid
 sequenceDiagram
-    actor Usuario
+    actor User
     participant Ocra as Ocra (UI thin client)
     participant k3s as k3s Ingress
     participant OpenClaw as OpenClaw Pod
     participant Hermes as Hermes Pod
-    participant Ollama as Ollama VM (Nitro GPU)
-
-    Usuario->>Ocra: Abre navegador / app
+    participant Ollama as Ollama (Sadida GPU)
+ 
+    User->>Ocra: Opens browser / app
     Ocra->>k3s: HTTP request
     k3s->>OpenClaw: route /openclaw
     k3s->>Hermes: route /hermes
@@ -135,228 +146,230 @@ sequenceDiagram
     Hermes->>Ollama: API POST /api/chat
     Ollama-->>OpenClaw: stream tokens
     Ollama-->>Hermes: stream tokens
-    OpenClaw-->>Ocra: respuesta
-    Hermes-->>Ocra: respuesta
+    OpenClaw-->>Ocra: response
+    Hermes-->>Ocra: response
 ```
-
-### Stack k3s
-
+ 
+### k3s Stack
+ 
 ```mermaid
 graph LR
     subgraph ingress["Ingress Layer"]
         TRAEFIK["Traefik\nIngress Controller"]
     end
-
+ 
     subgraph ai["AI Namespace"]
         OC["OpenClaw"]
         HM["Hermes"]
+        OL["Ollama"]
     end
-
+ 
     subgraph storage["Storage"]
         PVC["PersistentVolumeClaims"]
-        NFS["NFS Provisioner\n→ Aery"]
+        NFS["NFS → Aery\n/volume1/homes"]
     end
-
+ 
     subgraph monitoring["Monitoring Namespace"]
         PROM["Prometheus"]
         GRAF["Grafana"]
         LOKI["Loki"]
     end
-
-    subgraph system["System"]
-        CERT["cert-manager"]
-        REFL["reflector"]
-    end
-
+ 
     TRAEFIK --> OC
     TRAEFIK --> HM
     TRAEFIK --> GRAF
+    OC --> OL
+    HM --> OL
     OC --> PVC
     HM --> PVC
     PVC --> NFS
     PROM --> GRAF
     LOKI --> GRAF
 ```
-
-### Wake-on-LAN remoto
-
+ 
+### Wake-on-LAN Flow
+ 
 ```mermaid
 flowchart TD
-    DEV["Tu dispositivo\n(Tailscale client)"]
-    TS["Tailscale Network\n100.x.x.x"]
-    GW["gateway-vm en Nitro\nSubnet router"]
-    WOL["Script WOL\nwakeonlan"]
-    SWITCH["Switch\n(broadcast domain)"]
-    XELOR["Xelor despierta 🟢"]
-    SACRO["Sacro despierta 🟢"]
-
-    DEV -->|SSH / API| TS
-    TS --> GW
-    GW --> WOL
+    DEV["Your device\n(Tailscale client)"]
+    TS["Tailscale Network"]
+    SADIDA["Sadida\nWOL relay"]
+    WOL["wakeonlan script"]
+    SWITCH["Ethernet Switch\n(broadcast domain)"]
+    XELOR["Xelor wakes up 🟢"]
+    SACRO["Sacro wakes up 🟢"]
+ 
+    DEV -->|SSH / script| TS
+    TS --> SADIDA
+    SADIDA --> WOL
     WOL -->|magic packet UDP 9| SWITCH
     SWITCH --> XELOR
     SWITCH --> SACRO
-
-    XELOR -->|se une al clúster| K3S["k3s master"]
-    SACRO -->|se une al clúster| K3S
+ 
+    XELOR -->|joins cluster| K3S["k3s master\n(Sadida)"]
+    SACRO -->|joins cluster| K3S
 ```
-
+ 
 ---
-
-## Requisitos previos
-
-- **Nitro:** Proxmox VE 8.x instalado, BIOS con VT-d habilitado para GPU passthrough
-- **Aery:** Synology DSM con paquete NFS habilitado
-- **Sram / Ocra / Xelor / Sacro:** Debian 12 instalado, usuario con sudo, SSH activo
-- **Red:** Todos los nodos en el mismo broadcast domain (mismo switch)
-- **WOL:** Habilitado en BIOS de Xelor y Sacro; NICs compatibles con magic packets
-- **Tailscale:** Cuenta activa; auth key generado en `https://login.tailscale.com/admin/settings/keys`
-- **Ansible:** `ansible >= 2.14` en tu máquina local
-- **kubectl + helm:** Instalados en tu máquina local
-
+ 
+## Prerequisites
+ 
+- **Sadida:** Proxmox VE 8.x installed, BIOS with VT-d enabled for GPU passthrough, `_netdev` NFS mount configured
+- **Aery:** Synology DSM with NFS service enabled, `/volume1/homes` exported to `192.168.68.0/24` and `100.0.0.0/8`
+- **Sram / Ocra / Xelor / Sacro:** Debian 13 Trixie installed, user with sudo, SSH active
+- **Network:** All nodes on the same broadcast domain (same switch)
+- **WOL:** Enabled in BIOS on Xelor and Sacro; NICs compatible with magic packets
+- **Tailscale:** Active account; auth key generated at `https://login.tailscale.com/admin/settings/keys`
+- **Ansible:** `ansible >= 2.14` on your local machine
+- **kubectl + helm:** Installed on your local machine
 ---
-
-## Instalación rápida
-
+ 
+## Quick Start
+ 
 ```bash
-# 1. Clonar este repositorio
-git clone <tu-repo> homelab && cd homelab
-
-# 2. Copiar y editar el inventario con tus IPs y MACs
+# 1. Clone this repository
+git clone <your-repo> homelab && cd homelab
+ 
+# 2. Copy and edit the inventory with your real IPs and MACs
 cp ansible/inventory/hosts.yml.example ansible/inventory/hosts.yml
 $EDITOR ansible/inventory/hosts.yml
-
-# 3. Configurar variables (Tailscale auth key, SSH keys, etc.)
+ 
+# 3. Configure variables (Tailscale auth key, SSH keys, etc.)
 cp ansible/inventory/group_vars/all.yml.example ansible/inventory/group_vars/all.yml
 $EDITOR ansible/inventory/group_vars/all.yml
-
-# 4. Bootstrap de todos los nodos (instala dependencias base)
+ 
+# 4. Bootstrap all nodes (installs base dependencies)
 ansible-playbook ansible/playbooks/bootstrap.yml
-
-# 5. Configurar Proxmox y crear VMs en Nitro
+ 
+# 5. Configure Proxmox on Sadida
 ansible-playbook ansible/playbooks/proxmox.yml
-
-# 6. Instalar k3s (master + workers)
+ 
+# 6. Install k3s (master + workers)
 ansible-playbook ansible/playbooks/k3s.yml
-
-# 7. Aplicar manifests del clúster
+ 
+# 7. Apply cluster manifests
 kubectl apply -k k3s/manifests/
-
-# 8. Verificar el clúster
+ 
+# 8. Verify the cluster
 kubectl get nodes -o wide
 ```
-
+ 
 ---
-
-## Uso diario
-
-### Despertar nodos on-demand
-
+ 
+## Daily Usage
+ 
+### Wake on-demand nodes
+ 
 ```bash
-# Despertar Xelor
+# Wake Xelor
 ./scripts/wol/wake.sh xelor
-
-# Despertar Sacro
+ 
+# Wake Sacro
 ./scripts/wol/wake.sh sacro
-
-# Despertar todos los nodos on-demand
+ 
+# Wake all on-demand nodes
 ./scripts/wol/wake.sh all
-
-# Ver estado de todos los nodos
+ 
+# Check status of all nodes
 ./scripts/wol/status.sh
 ```
-
-### Gestionar el clúster k3s
-
+ 
+### Manage the k3s cluster
+ 
 ```bash
-# Ver nodos
-kubectl get nodes
-
-# Ver pods de AI
+# List nodes
+kubectl get nodes -o wide
+ 
+# View AI pods
 kubectl get pods -n ai
-
-# Escalar OpenClaw
+ 
+# Scale OpenClaw
 kubectl scale deployment openclaw -n ai --replicas=2
-
-# Ver logs de Ollama
+ 
+# Stream Ollama logs
 kubectl logs -n ai deployment/ollama -f
 ```
-
-### Añadir nodo al clúster manualmente
-
+ 
+### Join a worker manually (after WOL)
+ 
 ```bash
-# En el nodo nuevo (ej: Xelor recién despertado)
 ./scripts/k3s/join-worker.sh xelor
 ```
-
+ 
+### Mount Aery NFS manually (if needed)
+ 
+```bash
+mount /mnt/data
+# or force remount of all fstab entries:
+mount -a
+```
+ 
 ---
-
-## Stack de servicios
-
-| Servicio | Namespace | Puerto externo | Descripción |
-|----------|-----------|---------------|-------------|
+ 
+## Service Stack
+ 
+| Service | Namespace | External path | Description |
+|---------|-----------|---------------|-------------|
 | Traefik | kube-system | 80 / 443 | Ingress controller |
-| OpenClaw | ai | /openclaw | Interfaz AI principal |
-| Hermes | ai | /hermes | Asistente AI |
-| Ollama | ai | :11434 (interno) | Motor de modelos locales |
-| Prometheus | monitoring | /prometheus | Métricas del clúster |
+| OpenClaw | ai | /openclaw | Main AI interface |
+| Hermes | ai | /hermes | AI assistant |
+| Ollama | ai | :11434 (internal) | Local model engine |
+| Prometheus | monitoring | /prometheus | Cluster metrics |
 | Grafana | monitoring | /grafana | Dashboards |
-| Loki | monitoring | interno | Agregación de logs |
-
+| Loki | monitoring | internal | Log aggregation |
+ 
 ---
-
-## Estructura del proyecto
-
+ 
+## Project Structure
+ 
 ```
 homelab/
-├── README.md                        ← Este archivo
+├── README.md                        ← This file
 ├── ansible/
 │   ├── inventory/
-│   │   ├── hosts.yml                ← IPs, MACs, grupos de nodos
+│   │   ├── hosts.yml                ← IPs, MACs, node groups
 │   │   └── group_vars/
-│   │       └── all.yml              ← Variables globales (tokens, keys)
+│   │       └── all.yml              ← Global variables (tokens, keys)
 │   ├── playbooks/
-│   │   ├── bootstrap.yml            ← Setup base de todos los nodos
-│   │   ├── proxmox.yml              ← Configuración de Nitro + VMs
-│   │   └── k3s.yml                  ← Instalación del clúster
+│   │   ├── bootstrap.yml            ← Base setup for all nodes
+│   │   ├── proxmox.yml              ← Proxmox configuration on Sadida
+│   │   └── k3s.yml                  ← Cluster installation
 │   └── roles/
-│       ├── common/                  ← Paquetes base, hardening SSH
-│       ├── proxmox/                 ← Proxmox API + creación de VMs
-│       ├── k3s-master/              ← Instalación nodo master
-│       ├── k3s-worker/              ← Instalación nodos worker
-│       ├── nas/                     ← Configuración NFS en Aery
-│       └── wol/                     ← Configuración Wake-on-LAN
+│       ├── common/                  ← Base packages, SSH hardening
+│       ├── proxmox/                 ← Proxmox API + VM creation
+│       ├── k3s-master/              ← Master node installation
+│       ├── k3s-worker/              ← Worker node installation
+│       ├── nas/                     ← NFS configuration for Aery
+│       └── wol/                     ← Wake-on-LAN configuration
 ├── k3s/
 │   ├── manifests/
-│   │   ├── namespaces/              ← Namespaces del clúster
-│   │   ├── storage/                 ← StorageClass NFS + PVCs
-│   │   ├── ai/                      ← Deployments OpenClaw, Hermes, Ollama
+│   │   ├── namespaces/              ← Cluster namespaces
+│   │   ├── storage/                 ← NFS StorageClass + PVCs
+│   │   ├── ai/                      ← OpenClaw, Hermes, Ollama deployments
 │   │   ├── monitoring/              ← Prometheus, Grafana, Loki
-│   │   └── ingress/                 ← IngressRoutes Traefik
-│   └── helm/                        ← Values files para charts Helm
+│   │   └── ingress/                 ← Traefik IngressRoutes
+│   └── helm/                        ← Helm chart value files
 ├── scripts/
 │   ├── bootstrap/
-│   │   └── node-init.sh             ← Script inicial para nodo Debian nuevo
+│   │   └── node-init.sh             ← First-boot script for fresh Debian node
 │   ├── wol/
-│   │   ├── wake.sh                  ← Enviar magic packet a un nodo
-│   │   └── status.sh                ← Ping a todos los nodos
+│   │   ├── wake.sh                  ← Send magic packet to a node
+│   │   └── status.sh                ← Ping all nodes + Ollama status
 │   ├── k3s/
-│   │   └── join-worker.sh           ← Unir worker al clúster
+│   │   └── join-worker.sh           ← Join worker to the cluster
 │   └── ai/
-│       └── pull-models.sh           ← Descargar modelos en Ollama
+│       └── pull-models.sh           ← Download models into Ollama
 └── docs/
-    └── proxmox-gpu-passthrough.md   ← Guía GPU passthrough paso a paso
+    └── proxmox-gpu-passthrough.md   ← GPU passthrough step-by-step guide
 ```
-
+ 
 ---
-
-## Notas de seguridad
-
-- Los secrets de Kubernetes se gestionan con **Sealed Secrets** (incluido en manifests)
-- El archivo `ansible/inventory/group_vars/all.yml` **nunca se commitea** (ver `.gitignore`)
-- Tailscale ACLs recomendadas: solo Nitro gateway-vm tiene acceso a la subred completa
-- SSH en todos los nodos: autenticación solo por llave pública, root login deshabilitado
-
+ 
+## Security Notes
+ 
+- Kubernetes secrets are managed with **Sealed Secrets** (included in manifests)
+- `ansible/inventory/group_vars/all.yml` is **never committed** (see `.gitignore`)
+- Recommended Tailscale ACLs: only Sadida has access to the full subnet route
+- SSH on all nodes: public key authentication only, root login disabled
+- NFS export is restricted to `192.168.68.0/24` and `100.0.0.0/8` (Tailscale range)
 ---
-
-*Generado con ❤️ para un home lab eficiente.*
