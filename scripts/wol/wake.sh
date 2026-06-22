@@ -17,14 +17,20 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 # ── Nodos on-demand y sus MACs ───────────────────────────────────
 # Edita estas variables si no usas el inventario de Ansible
+
+
 declare -A NODES=(
-  [xelor]="AA:BB:CC:DD:EE:01"
-  [sacro]="AA:BB:CC:DD:EE:02"
+  [xelor]="88:ae:1d:6c:e4:06"
+  [sacro]="68:f7:28:83:d6:77"
+  [sram]="d8:9e:f3:89:8a:24"
 )
 declare -A NODE_IPS=(
-  [xelor]="192.168.1.50"
-  [sacro]="192.168.1.60"
+  [xelor]="192.168.68.114"
+  [sacro]="192.168.68.115"
+  [sram]="192.168.68.108"
 )
+
+
 BROADCAST="192.168.1.255"
 WOL_PORT=9
 WAIT_TIMEOUT=120   # segundos esperando que el nodo responda
