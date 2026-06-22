@@ -25,9 +25,9 @@ err()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 # Todos los workers — edita SSH_USER si tu usuario es diferente en algún nodo
 declare -A NODE_IPS=(
   [ocra]="192.168.68.100"
-  [sram]="192.168.68.108"
-  [xelor]="192.168.68.114"
-  [sacro]="192.168.68.115"
+  [sram]="100.87.145.104"
+  [xelor]="100.92.255.18"
+  [sacro]="100.123.227.47"
 )
 declare -A NODE_USERS=(
   [ocra]="seth"

@@ -27,9 +27,9 @@ declare -A NODE_MACS=(
   [ocra]=""    # añadir MAC cuando se configure WOL en Ocra
 )
 declare -A NODE_IPS=(
-  [sram]="192.168.68.108"
-  [xelor]="192.168.68.114"
-  [sacro]="192.168.68.115"
+  [sram]="100.87.145.104"
+  [xelor]="100.92.255.18"
+  [sacro]="100.123.227.47"
   [ocra]="192.168.68.100"
 )
 declare -A NODE_TAGS=(
