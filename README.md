@@ -1,4 +1,4 @@
-# HomeLab Infrastructure
+# HomeLab Infrastructure for High Availability
  
 Complete infrastructure for a 6-node home cluster based on **k3s**, **Proxmox VE**, **Tailscale** and **Wake-on-LAN**, with support for local AI models via GPU.
  
