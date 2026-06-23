@@ -199,7 +199,7 @@ main() {
       wait
     fi
     for node in sram xelor sacro; do # Remove Ocra since it doesn't support Wake up lan
-      SKIP_DRAIN=true shutdown_node "$node"
+      shutdown_node "$node"
     done
     ok "Todos los workers apagados"
   else
