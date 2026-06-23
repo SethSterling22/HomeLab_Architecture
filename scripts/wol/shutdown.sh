@@ -43,7 +43,6 @@ MASTER_NODE="sadida"
 
 # ── Flags ─────────────────────────────────────────────────────────
 SKIP_DRAIN=false
-SSH_PASSWORD="your-password-here"
 
 # ── Funciones ─────────────────────────────────────────────────────
 check_deps() {
@@ -108,8 +107,13 @@ shutdown_node() {
   fi
 
   log "Apagando ${BLUE}${node}${NC} (${ip})..."
-  sshpass -p "$SSH_PASSWORD" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-    "${user}@${ip}" "sudo shutdown -h now" 2>/dev/null || true
+    if [[ "$node" == "sacro" ]]; then # Exemption for Sacro (BIOS setting)
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+        "${user}@${ip}" "sudo systemctl suspend"
+    else
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+        "${user}@${ip}" "sudo shutdown -h now"
+    fi
 
   # Esperar a que deje de responder
   local elapsed=0
