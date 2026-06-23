@@ -43,7 +43,7 @@ MASTER_NODE="sadida"
 
 # ── Flags ─────────────────────────────────────────────────────────
 SKIP_DRAIN=false
-SSH_PASSWORD="your-password-here"
+SSH_PASSWORD=""
 
 # ── Funciones ─────────────────────────────────────────────────────
 check_deps() {
