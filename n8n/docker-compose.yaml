@@ -7,10 +7,15 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=n8n_admin
-      - POSTGRES_PASSWORD=CambiaEstePasswordSeguro123!
+      - POSTGRES_PASSWORD=@UnaContraseñaSegura192837
       - POSTGRES_DB=n8n_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n_admin -d n8n_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5  
     networks:
       - n8n_network
 
@@ -26,9 +31,9 @@ services:
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n_db
       - DB_POSTGRESDB_USER=n8n_admin
-      - DB_POSTGRESDB_PASSWORD=CambiaEstePasswordSeguro123!
+      - DB_POSTGRESDB_PASSWORD=@UnaContraseñaSegura192837
       # Genera una clave larga y aleatoria para encriptar las credenciales en la DB
-      - N8N_ENCRYPTION_KEY=ClaveSuperSecretaYAleatoriaDeN8n
+      - N8N_ENCRYPTION_KEY=
     volumes:
       - n8n_data:/home/node/.n8n
     dns:
