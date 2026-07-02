@@ -33,7 +33,7 @@ services:
       - DB_POSTGRESDB_USER=n8n_admin
       - DB_POSTGRESDB_PASSWORD=@UnaContraseñaSegura192837
       # Genera una clave larga y aleatoria para encriptar las credenciales en la DB
-      - N8N_ENCRYPTION_KEY=
+      - N8N_ENCRYPTION_KEY=5734f43198415a2982183e067967758c7fe8bd129244e166fc45b7b4949884b7
     volumes:
       - n8n_data:/home/node/.n8n
     dns:
