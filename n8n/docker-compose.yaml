@@ -1,0 +1,59 @@
+# n8n with database
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n_postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=n8n_admin
+      - POSTGRES_PASSWORD=@UnaContraseñaSegura192837
+      - POSTGRES_DB=n8n_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n_admin -d n8n_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5  
+    networks:
+      - n8n_network
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n_core
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n_db
+      - DB_POSTGRESDB_USER=n8n_admin
+      - DB_POSTGRESDB_PASSWORD=@UnaContraseñaSegura192837
+      # Genera una clave larga y aleatoria para encriptar las credenciales en la DB
+      - N8N_ENCRYPTION_KEY=5734f43198415a2982183e067967758c7fe8bd129244e166fc45b7b4949884b7
+    volumes:
+      - n8n_data:/home/node/.n8n
+    dns:
+      - 100.100.100.100  # <--- IP de MagicDNS de Tailscale
+    networks:
+      - n8n_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+  n8n_data:
+    driver: local
+
+networks:
+  n8n_network:
+    driver: bridge
+
+
+# How to run it:
+# sudo docker compose up -d
