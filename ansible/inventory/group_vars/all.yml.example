@@ -1,62 +1,37 @@
 # ansible/inventory/group_vars/all.yml
-# NUNCA commitear este archivo — contiene secretos
-# Copia desde all.yml.example y rellena los valores reales
+# NEVER commit this file — it contains secrets.
+# Copy from all.yml.example and fill in the real values.
 ---
 
 # ── Tailscale ────────────────────────────────────────────────────
 tailscale_auth_key: "tskey-auth-XXXXXXXXXXXXXXXX"  # https://login.tailscale.com/admin/settings/keys
-tailscale_subnet_route: "192.168.1.0/24"
+tailscale_subnet_route: "192.168.68.0/24"
 
 # ── k3s ─────────────────────────────────────────────────────────
-k3s_version: "v1.29.4+k3s1"
-k3s_token: "cambia-esto-por-un-token-seguro-largo"   # openssl rand -hex 32
+k3s_version: "v1.35.5+k3s1"
+k3s_token: "change-me-to-a-long-secure-token"   # openssl rand -hex 32
 
-# ── Proxmox ──────────────────────────────────────────────────────
-proxmox_api_host: "192.168.1.10"
+# ── Proxmox (Sadida host) ────────────────────────────────────────
+# The k3s master and Ollama run directly on this host — no guest VMs.
+proxmox_api_host: "192.168.68.10"
 proxmox_api_user: "root@pam"
 proxmox_api_token_id: "ansible"
 proxmox_api_token_secret: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-proxmox_node: "nitro"
+proxmox_node: "sadida"
 
-# ── VMs a crear en Proxmox ───────────────────────────────────────
-proxmox_vms:
-  - name: nitro-k3s-master
-    vmid: 101
-    cores: 4
-    memory: 8192
-    disk: 40        # GB
-    ip: 192.168.1.11
-    gateway: 192.168.1.1
-  - name: nitro-ollama
-    vmid: 102
-    cores: 6
-    memory: 16384
-    disk: 80
-    ip: 192.168.1.12
-    gateway: 192.168.1.1
-    gpu_passthrough: true
-  - name: nitro-gateway
-    vmid: 103
-    cores: 2
-    memory: 4096
-    disk: 20
-    ip: 192.168.1.13
-    gateway: 192.168.1.1
-
-# ── Aery NFS ─────────────────────────────────────────────────────
-aery_nfs_server: "192.168.1.20"
+# ── Aery NFS (Synology) ──────────────────────────────────────────
+aery_nfs_server: "192.168.68.190"
 aery_nfs_path: "/volume1/k3s"
 
-# ── Ollama ───────────────────────────────────────────────────────
-ollama_host: "192.168.1.12"
+# ── Ollama (local host service on Sadida, GPU) ───────────────────
+ollama_host: "sadida.stegosaurus-panga.ts.net"
 ollama_port: 11434
 ollama_models:
-  - "llama3:8b"
-  - "mistral:7b"
-  - "hermes2:7b"
+  - "qwen3:1.7b"     # intent classifier
+  - "qwen3.5:4b"     # main agent
 
 # ── SSH ──────────────────────────────────────────────────────────
-ssh_public_key: "ssh-ed25519 AAAA... tu@maquina"
+ssh_public_key: "ssh-ed25519 AAAA... you@machine"
 
-# ── WOL relay ────────────────────────────────────────────────────
-wol_relay_host: "192.168.1.13"   # gateway-vm en Nitro
+# ── Wake-on-LAN ──────────────────────────────────────────────────
+wol_broadcast: "192.168.68.255"

@@ -1,116 +1,54 @@
 ---
 # ansible/playbooks/proxmox.yml
-# Crea y configura las VMs en Nitro via API de Proxmox
-# Requiere: pip install proxmoxer requests
-- name: Configurar Proxmox y crear VMs
-  hosts: nitro
-  gather_facts: false
-
-  vars:
-    debian_cloud_image_url: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
-    debian_cloud_image_path: "/var/lib/vz/template/iso/debian-12-cloud.qcow2"
+# Prepares the Sadida Proxmox host.
+#
+# In this home lab the k3s control-plane and Ollama run DIRECTLY on the
+# Proxmox host (no guest VMs), so this playbook only configures the host
+# itself: package repos and the NVIDIA driver for the local GPU that
+# Ollama uses.
+- name: Configure the Sadida Proxmox host
+  hosts: sadida
+  become: true
+  gather_facts: true
 
   tasks:
-    - name: Habilitar repositorios no-enterprise (home lab)
+    - name: Enable the no-subscription repo (home lab)
       copy:
-        content: "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription\n"
+        content: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription\n"
         dest: /etc/apt/sources.list.d/pve-no-subscription.list
       notify: apt update
 
-    - name: Deshabilitar repo enterprise
+    - name: Disable the enterprise repo
       file:
         path: /etc/apt/sources.list.d/pve-enterprise.list
         state: absent
 
-    - name: Instalar dependencias Python para módulos Proxmox
+    - name: Install base host packages
       apt:
         name:
-          - python3-proxmoxer
-          - python3-requests
+          - curl
+          - git
+          - nfs-common
         state: present
         update_cache: true
 
-    - name: Descargar imagen cloud Debian 12
-      get_url:
-        url: "{{ debian_cloud_image_url }}"
-        dest: "{{ debian_cloud_image_path }}"
-        mode: "0644"
-
-    - name: Crear VMs en Proxmox
-      community.general.proxmox_kvm:
-        api_host: "{{ proxmox_api_host }}"
-        api_user: "{{ proxmox_api_user }}"
-        api_token_id: "{{ proxmox_api_token_id }}"
-        api_token_secret: "{{ proxmox_api_token_secret }}"
-        node: "{{ proxmox_node }}"
-        name: "{{ item.name }}"
-        vmid: "{{ item.vmid }}"
-        cores: "{{ item.cores }}"
-        memory: "{{ item.memory }}"
-        scsi:
-          scsi0: "local-lvm:{{ item.disk }},format=raw"
-        net:
-          net0: "virtio,bridge=vmbr0"
-        ipconfig:
-          ipconfig0: "ip={{ item.ip }}/24,gw={{ item.gateway }}"
-        sshkeys: "{{ ssh_public_key }}"
-        ostype: l26
-        agent: enabled=1
+    # ── Local GPU for Ollama ─────────────────────────────────────
+    # The RTX 3050 is used by Ollama running on this host (no PCI
+    # passthrough, since there are no guest VMs).
+    - name: Install NVIDIA driver for the local GPU
+      apt:
+        name:
+          - nvidia-driver
+          - firmware-misc-nonfree
         state: present
-      loop: "{{ proxmox_vms }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Configurar GPU passthrough para nitro-ollama
-      shell: |
-        # Obtener ID del dispositivo GPU
-        GPU_ID=$(lspci | grep -i nvidia | head -1 | awk '{print $1}')
-        echo "GPU encontrada: $GPU_ID"
-        # Añadir GPU passthrough a la VM 102
-        qm set 102 \
-          --hostpci0 "{{ '${GPU_ID}' }},pcie=1,x-vga=0" \
-          --vga none
-      register: gpu_result
-      changed_when: true
-      failed_when: false
-
-    - name: Habilitar IOMMU en GRUB (necesario para passthrough)
-      lineinfile:
-        path: /etc/default/grub
-        regexp: "^GRUB_CMDLINE_LINUX_DEFAULT="
-        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"'
-      notify: update grub
-
-    - name: Añadir módulos VFIO
-      blockinfile:
-        path: /etc/modules
-        block: |
-          vfio
-          vfio_iommu_type1
-          vfio_pci
-          vfio_virqfd
-      notify: update initramfs
-
-    - name: Iniciar todas las VMs
-      community.general.proxmox_kvm:
-        api_host: "{{ proxmox_api_host }}"
-        api_user: "{{ proxmox_api_user }}"
-        api_token_id: "{{ proxmox_api_token_id }}"
-        api_token_secret: "{{ proxmox_api_token_secret }}"
-        node: "{{ proxmox_node }}"
-        vmid: "{{ item.vmid }}"
-        state: started
-      loop: "{{ proxmox_vms }}"
-      loop_control:
-        label: "{{ item.name }}"
+        update_cache: true
+      notify: reboot host
 
   handlers:
     - name: apt update
       apt:
         update_cache: true
 
-    - name: update grub
-      command: update-grub
-
-    - name: update initramfs
-      command: update-initramfs -u -k all
+    - name: reboot host
+      debug:
+        msg: "NVIDIA driver installed — reboot the host to load the kernel module."

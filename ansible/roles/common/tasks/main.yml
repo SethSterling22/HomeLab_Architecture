@@ -1,6 +1,6 @@
 ---
 # ansible/roles/common/tasks/main.yml
-- name: Instalar paquetes base
+- name: Install base packages
   apt:
     name:
       - curl
@@ -9,9 +9,9 @@
       - htop
       - iotop
       - net-tools
-      - nfs-common        # para montar NFS de Aery
-      - wakeonlan          # para enviar magic packets
-      - open-iscsi        # cliente iSCSI
+      - nfs-common        # to mount NFS shares from Aery
+      - wakeonlan          # to send magic packets
+      - open-iscsi        # iSCSI client
       - apt-transport-https
       - ca-certificates
       - gnupg
@@ -20,17 +20,17 @@
     state: present
     update_cache: true
 
-- name: Configurar zona horaria
+- name: Configure timezone
   timezone:
     name: America/Puerto_Rico
 
-- name: Deshabilitar swap (requerido por k3s)
+- name: Disable swap (required by k3s)
   shell: |
     swapoff -a
     sed -i '/ swap / s/^/#/' /etc/fstab
   changed_when: false
 
-- name: Configurar parámetros de kernel para k3s
+- name: Configure kernel parameters for k3s
   sysctl:
     name: "{{ item.key }}"
     value: "{{ item.value }}"
@@ -43,7 +43,7 @@
     - { key: "net.ipv4.ip_forward",                  value: "1" }
     - { key: "vm.max_map_count",                     value: "262144" }
 
-- name: Cargar módulos de kernel necesarios
+- name: Load required kernel modules
   modprobe:
     name: "{{ item }}"
     state: present
@@ -51,14 +51,14 @@
     - br_netfilter
     - overlay
 
-- name: Persistir módulos en el boot
+- name: Persist modules across reboots
   copy:
     content: |
       br_netfilter
       overlay
     dest: /etc/modules-load.d/k3s.conf
 
-- name: Configurar autenticación SSH solo por llave
+- name: Configure key-only SSH authentication
   lineinfile:
     path: /etc/ssh/sshd_config
     regexp: "{{ item.regexp }}"
@@ -70,22 +70,16 @@
     - { regexp: "^#?PubkeyAuthentication",   line: "PubkeyAuthentication yes" }
   notify: restart sshd
 
-- name: Instalar llave SSH pública
+- name: Install the public SSH key
   authorized_key:
     user: "{{ ansible_user }}"
     key: "{{ ssh_public_key }}"
     state: present
 
-- name: Configurar actualizaciones de seguridad automáticas
+- name: Configure automatic security updates
   copy:
     content: |
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
     dest: /etc/apt/apt.conf.d/20auto-upgrades
-
-handlers:
-  - name: restart sshd
-    service:
-      name: sshd
-      state: restarted

@@ -1,16 +1,16 @@
 ---
 # ansible/playbooks/bootstrap.yml
-# Setup base para todos los nodos Debian (excepto Aery/Proxmox)
-- name: Bootstrap nodos Debian
-  hosts: k3s_master:k3s_workers
+# Base setup for all Debian nodes (except Aery, which is a Synology NAS).
+- name: Bootstrap Debian nodes
+  hosts: k3s_master:k3s_workers:compose_brain
   become: true
   gather_facts: true
 
   pre_tasks:
-    - name: Verificar conectividad
+    - name: Check connectivity
       ping:
 
-    - name: Actualizar apt cache
+    - name: Update apt cache
       apt:
         update_cache: true
         cache_valid_time: 3600
@@ -19,22 +19,22 @@
     - role: common
 
   post_tasks:
-    - name: Mostrar info del nodo
+    - name: Show node info
       debug:
-        msg: "✅ {{ inventory_hostname }} ({{ ansible_default_ipv4.address }}) — bootstrap completo"
+        msg: "OK {{ inventory_hostname }} ({{ ansible_default_ipv4.address }}) — bootstrap complete"
 
-- name: Bootstrap Tailscale en gateway-vm
-  hosts: nitro-gateway
+- name: Set up Tailscale subnet router on the Sadida host
+  hosts: k3s_master
   become: true
 
   tasks:
-    - name: Instalar Tailscale
+    - name: Install Tailscale
       shell: |
         curl -fsSL https://tailscale.com/install.sh | sh
       args:
         creates: /usr/bin/tailscale
 
-    - name: Activar Tailscale como subnet router
+    - name: Bring up Tailscale as a subnet router
       shell: |
         tailscale up \
           --authkey="{{ tailscale_auth_key }}" \
@@ -43,7 +43,7 @@
       register: ts_result
       changed_when: "'already' not in ts_result.stdout"
 
-    - name: Habilitar IP forwarding (necesario para subnet router)
+    - name: Enable IP forwarding (required for a subnet router)
       sysctl:
         name: "{{ item }}"
         value: "1"

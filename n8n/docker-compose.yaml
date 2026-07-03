@@ -101,9 +101,21 @@ services:
       - WORKSPACE_ROOT=/workspace
       # Sadida through MagicDNS of Tailscale (more robust than IP)
       - OLLAMA_URL=http://sadida.stegosaurus-panga.ts.net:11434
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}   # defined in .env
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}   # defined in .env; empty -> auto fallback to Qwen
+      # ── Capability toggles (default: locked down). Flip in .env as needed. ──
+      - HERMES_ALLOW_SSH=${HERMES_ALLOW_SSH:-false}                                # ssh/scp/sftp/rsync to cluster nodes
+      - HERMES_ALLOW_UNRESTRICTED_SHELL=${HERMES_ALLOW_UNRESTRICTED_SHELL:-false}  # any command via bash -lc
+      - HERMES_SHELL_EXTRA=${HERMES_SHELL_EXTRA:-}                                 # extra binaries, e.g. "rm,mv,cp,tar"
+      - HERMES_FS_UNRESTRICTED=${HERMES_FS_UNRESTRICTED:-false}                    # read/write/delete anywhere
+      - HERMES_FS_ALLOW_WRITE_ANYWHERE=${HERMES_FS_ALLOW_WRITE_ANYWHERE:-false}
+      - HERMES_FS_ALLOW_DELETE=${HERMES_FS_ALLOW_DELETE:-false}
+      - HERMES_CLAUDE_FALLBACK_MODEL=${HERMES_CLAUDE_FALLBACK_MODEL:-qwen3.5:4b}
     volumes:
       - hermes_workspace:/workspace
+      # To let Hermes SSH into cluster nodes: mount a read-only SSH key here,
+      # set HERMES_ALLOW_SSH=true, and authorize the public key on the targets.
+      # - ${HOME}/.ssh/hermes_id_ed25519:/workspace/.ssh/id_ed25519:ro
+      # - ${HOME}/.ssh/known_hosts:/workspace/.ssh/known_hosts:ro
     depends_on:
       tailscale:
         condition: service_started

@@ -1,12 +1,12 @@
 ---
 # ansible/playbooks/k3s.yml
-# Instala k3s: primero el master, luego los workers permanentes
-- name: Instalar k3s master
+# Installs k3s: first the master (on the Sadida host), then the permanent workers.
+- name: Install k3s master
   hosts: k3s_master
   become: true
 
   tasks:
-    - name: Instalar k3s como server
+    - name: Install k3s as server
       shell: |
         curl -sfL https://get.k3s.io | \
           INSTALL_K3S_VERSION="{{ k3s_version }}" \
@@ -20,20 +20,20 @@
       args:
         creates: /usr/local/bin/k3s
 
-    - name: Esperar a que el master esté listo
+    - name: Wait for the master to be ready
       wait_for:
         port: 6443
         host: "{{ ansible_host }}"
         delay: 10
         timeout: 120
 
-    - name: Obtener kubeconfig
+    - name: Fetch kubeconfig
       fetch:
         src: /etc/rancher/k3s/k3s.yaml
         dest: "{{ playbook_dir }}/../../kubeconfig.yaml"
         flat: true
 
-    - name: Parchear kubeconfig con IP real
+    - name: Patch kubeconfig with the real IP
       delegate_to: localhost
       become: false
       replace:
@@ -41,13 +41,13 @@
         regexp: "127.0.0.1"
         replace: "{{ ansible_host }}"
 
-    - name: Instalar Helm
+    - name: Install Helm
       shell: |
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       args:
         creates: /usr/local/bin/helm
 
-    - name: Instalar Traefik via Helm
+    - name: Install Traefik via Helm
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         helm repo add traefik https://helm.traefik.io/traefik
@@ -59,64 +59,64 @@
       register: traefik_result
       changed_when: "'deployed' in traefik_result.stdout or 'upgraded' in traefik_result.stdout"
 
-- name: Instalar k3s en workers permanentes
+- name: Install k3s on the permanent workers
   hosts: k3s_workers_permanent
   become: true
-  serial: 1   # Uno por uno para evitar problemas de etcd
+  serial: 1   # One at a time to avoid etcd issues
 
   tasks:
-    - name: Instalar k3s como agent
+    - name: Install k3s as agent
       shell: |
         curl -sfL https://get.k3s.io | \
           INSTALL_K3S_VERSION="{{ k3s_version }}" \
           K3S_TOKEN="{{ k3s_token }}" \
-          K3S_URL="https://{{ hostvars['nitro-k3s-master']['ansible_host'] }}:6443" \
+          K3S_URL="https://{{ hostvars['sadida']['ansible_host'] }}:6443" \
           sh -s - agent \
             --node-name "{{ inventory_hostname }}"
       args:
         creates: /usr/local/bin/k3s
 
-    - name: Verificar que el worker se registró
-      delegate_to: "nitro-k3s-master"
+    - name: Verify the worker registered
+      delegate_to: "sadida"
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl wait node/{{ inventory_hostname }} --for=condition=Ready --timeout=120s
       register: node_ready
       changed_when: false
 
-    - name: Etiquetar worker
-      delegate_to: "nitro-k3s-master"
+    - name: Label the worker
+      delegate_to: "sadida"
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl label node {{ inventory_hostname }} homelab/always-on=true --overwrite
       changed_when: true
 
-- name: Aplicar manifests base del clúster
+- name: Apply the base cluster manifests
   hosts: k3s_master
   become: true
 
   tasks:
-    - name: Copiar manifests al master
+    - name: Copy manifests to the master
       copy:
         src: "{{ playbook_dir }}/../../k3s/manifests/"
         dest: /tmp/k3s-manifests/
 
-    - name: Aplicar namespaces
+    - name: Apply namespaces
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl apply -f /tmp/k3s-manifests/namespaces/
 
-    - name: Aplicar storage (NFS provisioner)
+    - name: Apply storage (NFS provisioner)
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl apply -f /tmp/k3s-manifests/storage/
 
-    - name: Aplicar stack AI
+    - name: Apply the AI stack
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl apply -f /tmp/k3s-manifests/ai/
 
-    - name: Aplicar ingress routes
+    - name: Apply ingress routes
       shell: |
         export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
         kubectl apply -f /tmp/k3s-manifests/ingress/

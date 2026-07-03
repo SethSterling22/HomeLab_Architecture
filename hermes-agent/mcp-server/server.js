@@ -5,12 +5,26 @@
  * Runs inside a sandbox with controlled bind mounts.
  *
  * Available tools:
- *   fs_list      — ls a directory inside the workspace
+ *   fs_list      — ls a directory
  *   fs_read      — read a file
- *   fs_write     — write a file (only under /workspace/output)
- *   shell_exec   — run a command in /workspace (allowlist)
+ *   fs_write     — write a file
+ *   fs_delete    — delete a file/dir (only when HERMES_FS_ALLOW_DELETE=true)
+ *   shell_exec   — run a command (allowlist, or any command in unrestricted mode)
  *   ollama_chat  — call Ollama via API
- *   claude_chat  — call the Claude API
+ *   claude_chat  — call the Claude API (falls back to Ollama/Qwen when unavailable)
+ *
+ * ── Capability toggles ────────────────────────────────────────────────────────
+ * Everything is LOCKED DOWN by default. Widen permissions per need by setting
+ * these env vars to a truthy value ("true"/"1"/"yes"/"on"):
+ *
+ *   HERMES_ALLOW_SSH                add ssh/scp/sftp/rsync/ssh-keyscan to the shell allowlist
+ *   HERMES_SHELL_EXTRA             comma-separated extra binaries to allow (e.g. "rm,mv,cp,tar")
+ *   HERMES_ALLOW_UNRESTRICTED_SHELL  run ANY command via `bash -lc` (no allowlist, full shell)
+ *   HERMES_FS_UNRESTRICTED         read/list/write/delete anywhere on the filesystem
+ *   HERMES_FS_ALLOW_WRITE_ANYWHERE fs_write may target any path (not just /workspace/output)
+ *   HERMES_FS_ALLOW_DELETE         enable the fs_delete tool
+ *   HERMES_DISABLE_CLAUDE_FALLBACK do NOT fall back to Ollama when Claude is unavailable
+ *   HERMES_CLAUDE_FALLBACK_MODEL   Ollama model used as the Claude fallback (default: qwen3.5:4b)
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -35,19 +49,39 @@ const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const CLAUDE_URL     = "https://api.anthropic.com/v1/messages";
 const MAX_OUTPUT_LEN = 8000;
 
-// Commands allowed in shell_exec — add the ones you need
-const SHELL_ALLOWLIST = [
+// ── Capability toggles ─────────────────────────────────────────────────────────
+const bool = (v) => /^(1|true|yes|on)$/i.test((v || "").trim());
+
+const ALLOW_SSH               = bool(process.env.HERMES_ALLOW_SSH);
+const ALLOW_UNRESTRICTED_SHELL = bool(process.env.HERMES_ALLOW_UNRESTRICTED_SHELL);
+const SHELL_EXTRA             = (process.env.HERMES_SHELL_EXTRA || "")
+  .split(",").map(s => s.trim()).filter(Boolean);
+const FS_UNRESTRICTED         = bool(process.env.HERMES_FS_UNRESTRICTED);
+const FS_ALLOW_WRITE_ANYWHERE = bool(process.env.HERMES_FS_ALLOW_WRITE_ANYWHERE) || FS_UNRESTRICTED;
+const FS_ALLOW_DELETE         = bool(process.env.HERMES_FS_ALLOW_DELETE);
+const DISABLE_CLAUDE_FALLBACK = bool(process.env.HERMES_DISABLE_CLAUDE_FALLBACK);
+const CLAUDE_FALLBACK_MODEL   = process.env.HERMES_CLAUDE_FALLBACK_MODEL || "qwen3.5:4b";
+
+// Base commands allowed in shell_exec — SSH set and extras are added by toggles.
+const BASE_ALLOWLIST = [
   "ls", "find", "cat", "head", "tail", "grep", "wc",
   "pwd", "echo", "date", "df", "du", "stat",
   "python3", "node", "jq", "curl",
   "git", "npm", "pip3",
 ];
+const SSH_COMMANDS = ["ssh", "scp", "sftp", "rsync", "ssh-keyscan"];
+const SHELL_ALLOWLIST = [...new Set([
+  ...BASE_ALLOWLIST,
+  ...(ALLOW_SSH ? SSH_COMMANDS : []),
+  ...SHELL_EXTRA,
+])];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function assertInWorkspace(filePath) {
+function resolveSafe(filePath) {
   const resolved = path.resolve(filePath);
+  if (FS_UNRESTRICTED) return resolved;
   if (!resolved.startsWith(path.resolve(WORKSPACE_ROOT))) {
-    throw new Error(`Access denied: '${filePath}' is outside ${WORKSPACE_ROOT}`);
+    throw new Error(`Access denied: '${filePath}' is outside ${WORKSPACE_ROOT} (set HERMES_FS_UNRESTRICTED=true to allow)`);
   }
   return resolved;
 }
@@ -55,6 +89,26 @@ function assertInWorkspace(filePath) {
 function truncate(text, max = MAX_OUTPUT_LEN) {
   if (text.length <= max) return text;
   return text.slice(0, max) + `\n… [truncated, ${text.length - max} more chars]`;
+}
+
+// Shared Ollama call — also used as the Claude fallback.
+async function ollamaChat({ prompt, model, system, temperature }) {
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: prompt });
+  const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: model || "qwen3.5:4b",
+      stream: false,
+      messages,
+      options: { temperature: temperature ?? 0.7 },
+    }),
+  });
+  if (!resp.ok) throw new Error(`Ollama error ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return truncate(data.message?.content || "(no response)");
 }
 
 // ── Initialize output dir ───────────────────────────────────────────────────
@@ -67,38 +121,41 @@ const server = new Server(
 );
 
 // ── Tool list ─────────────────────────────────────────────────────────────────
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const tools = [
     {
       name: "fs_list",
-      description: "List files and directories inside the workspace.",
+      description: "List files and directories.",
       inputSchema: {
         type: "object",
         properties: {
-          dir: { type: "string", description: "Relative or absolute path inside /workspace. Default: /workspace" },
+          dir: { type: "string", description: "Path to list. Default: /workspace" },
         },
       },
     },
     {
       name: "fs_read",
-      description: "Read the contents of a file inside the workspace.",
+      description: "Read the contents of a file.",
       inputSchema: {
         type: "object",
         required: ["path"],
         properties: {
-          path: { type: "string", description: "File path inside /workspace" },
+          path: { type: "string", description: "File path" },
           max_bytes: { type: "number", description: "Maximum bytes to read (default 32768)" },
         },
       },
     },
     {
       name: "fs_write",
-      description: "Write a file under /workspace/output/. Writing is only allowed in this directory.",
+      description: FS_ALLOW_WRITE_ANYWHERE
+        ? "Write a file. Provide a full path to write anywhere, or a bare filename to write under /workspace/output."
+        : "Write a file under /workspace/output/. Writing is only allowed in this directory.",
       inputSchema: {
         type: "object",
-        required: ["filename", "content"],
+        required: ["content"],
         properties: {
-          filename: { type: "string", description: "File name (no path)" },
+          filename: { type: "string", description: "File name (written under /workspace/output)" },
+          path:     { type: "string", description: "Full path (only used when write-anywhere is enabled)" },
           content:  { type: "string", description: "Content to write" },
           append:   { type: "boolean", description: "If true, append to the end of the file" },
         },
@@ -106,7 +163,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "shell_exec",
-      description: `Run a command in the workspace. Allowlisted commands only: ${SHELL_ALLOWLIST.join(", ")}`,
+      description: ALLOW_UNRESTRICTED_SHELL
+        ? "Run ANY command through bash -lc (unrestricted mode is enabled)."
+        : `Run a command. Allowlisted commands only: ${SHELL_ALLOWLIST.join(", ")}`,
       inputSchema: {
         type: "object",
         required: ["command"],
@@ -132,7 +191,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "claude_chat",
-      description: "Send a prompt to the Claude API (Anthropic). Use for top quality, final posts, complex analysis.",
+      description: "Send a prompt to the Claude API. Falls back to Ollama/Qwen automatically when no API key is set or the API fails.",
       inputSchema: {
         type: "object",
         required: ["prompt"],
@@ -140,11 +199,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           prompt:    { type: "string", description: "Message to the model" },
           system:    { type: "string", description: "Optional system prompt" },
           max_tokens: { type: "number", description: "Maximum tokens (default: 1024)" },
+          temperature: { type: "number", description: "Temperature for the fallback model (default: 0.7)" },
         },
       },
     },
-  ],
-}));
+  ];
+
+  // Expose the destructive delete tool only when explicitly enabled.
+  if (FS_ALLOW_DELETE) {
+    tools.push({
+      name: "fs_delete",
+      description: "Delete a file or directory.",
+      inputSchema: {
+        type: "object",
+        required: ["path"],
+        properties: {
+          path:      { type: "string", description: "Path to delete" },
+          recursive: { type: "boolean", description: "Delete directories recursively" },
+        },
+      },
+    });
+  }
+
+  return { tools };
+});
 
 // ── Tool handlers ─────────────────────────────────────────────────────────────
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -154,7 +232,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // ── fs_list ──────────────────────────────────────────────────────────────
     if (name === "fs_list") {
       const dir = args.dir || WORKSPACE_ROOT;
-      const safe = assertInWorkspace(dir);
+      const safe = resolveSafe(dir);
       const entries = await fs.readdir(safe, { withFileTypes: true });
       const lines = entries.map((e) => {
         const type = e.isDirectory() ? "DIR " : e.isFile() ? "FILE" : "    ";
@@ -167,7 +245,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // ── fs_read ──────────────────────────────────────────────────────────────
     if (name === "fs_read") {
-      const safe = assertInWorkspace(args.path);
+      const safe = resolveSafe(args.path);
       const maxBytes = args.max_bytes || 32768;
       const handle = await fs.open(safe, "r");
       const buf = Buffer.alloc(maxBytes);
@@ -182,36 +260,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // ── fs_write ─────────────────────────────────────────────────────────────
     if (name === "fs_write") {
-      const filename = path.basename(args.filename); // strip any path traversal
-      const outPath  = path.join(OUTPUT_DIR, filename);
-      const flag     = args.append ? "a" : "w";
+      const target = args.path || args.filename;
+      if (!target) throw new Error("fs_write needs 'filename' or 'path'");
+      let outPath;
+      if (FS_ALLOW_WRITE_ANYWHERE && target.includes("/")) {
+        outPath = resolveSafe(target);
+        await fs.mkdir(path.dirname(outPath), { recursive: true });
+      } else {
+        outPath = path.join(OUTPUT_DIR, path.basename(target)); // strip any path traversal
+      }
+      const flag = args.append ? "a" : "w";
       await fs.writeFile(outPath, args.content, { flag, encoding: "utf8" });
       return {
         content: [{ type: "text", text: `File written: ${outPath}` }],
       };
     }
 
+    // ── fs_delete ────────────────────────────────────────────────────────────
+    if (name === "fs_delete") {
+      if (!FS_ALLOW_DELETE) throw new Error("fs_delete is disabled (set HERMES_FS_ALLOW_DELETE=true to enable)");
+      const safe = resolveSafe(args.path);
+      await fs.rm(safe, { recursive: !!args.recursive, force: false });
+      return {
+        content: [{ type: "text", text: `Deleted: ${safe}` }],
+      };
+    }
+
     // ── shell_exec ───────────────────────────────────────────────────────────
     if (name === "shell_exec") {
-      const parts   = args.command.trim().split(/\s+/);
-      const binary  = parts[0];
-      const cmdArgs = parts.slice(1);
+      const cmd = (args.command || "").trim();
+      if (!cmd) throw new Error("Empty command");
+      const timeout = args.timeout || 10000;
+      const opts = {
+        cwd: WORKSPACE_ROOT,
+        timeout,
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, HOME: WORKSPACE_ROOT },
+      };
 
+      // Unrestricted mode: full shell (pipes, redirects, &&).
+      if (ALLOW_UNRESTRICTED_SHELL) {
+        const { stdout, stderr } = await execFileAsync("bash", ["-lc", cmd], opts);
+        return { content: [{ type: "text", text: truncate((stdout || "") + (stderr ? `\nSTDERR:\n${stderr}` : "")) || "(no output)" }] };
+      }
+
+      const parts   = cmd.split(/\s+/);
+      const binary  = parts[0];
       if (!SHELL_ALLOWLIST.includes(binary)) {
         return {
-          content: [{ type: "text", text: `Command '${binary}' is not in the allowlist. Allowed: ${SHELL_ALLOWLIST.join(", ")}` }],
+          content: [{ type: "text", text: `Command '${binary}' is not in the allowlist. Allowed: ${SHELL_ALLOWLIST.join(", ")} (widen with HERMES_ALLOW_SSH / HERMES_SHELL_EXTRA / HERMES_ALLOW_UNRESTRICTED_SHELL)` }],
           isError: true,
         };
       }
 
-      const timeout = args.timeout || 10000;
-      const { stdout, stderr } = await execFileAsync(binary, cmdArgs, {
-        cwd: WORKSPACE_ROOT,
-        timeout,
-        maxBuffer: 1024 * 512,
-        env: { ...process.env, HOME: WORKSPACE_ROOT },
-      });
-
+      const { stdout, stderr } = await execFileAsync(binary, parts.slice(1), opts);
       const out = truncate((stdout || "") + (stderr ? `\nSTDERR:\n${stderr}` : ""));
       return {
         content: [{ type: "text", text: out || "(no output)" }],
@@ -220,30 +322,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // ── ollama_chat ──────────────────────────────────────────────────────────
     if (name === "ollama_chat") {
-      const model    = args.model || "qwen3.5:4b";
-      const messages = [];
-      if (args.system) messages.push({ role: "system", content: args.system });
-      messages.push({ role: "user", content: args.prompt });
-
-      const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          messages,
-          options: { temperature: args.temperature ?? 0.7 },
-        }),
+      const text = await ollamaChat({
+        prompt: args.prompt,
+        model: args.model,
+        system: args.system,
+        temperature: args.temperature,
       });
-      if (!resp.ok) throw new Error(`Ollama error ${resp.status}: ${await resp.text()}`);
-      const data = await resp.json();
-      const text = data.message?.content || "(no response)";
-      return { content: [{ type: "text", text: truncate(text) }] };
+      return { content: [{ type: "text", text }] };
     }
 
     // ── claude_chat ──────────────────────────────────────────────────────────
     if (name === "claude_chat") {
-      if (!CLAUDE_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+      // No key → transparently fall back to Ollama (Qwen) unless disabled.
+      if (!CLAUDE_API_KEY) {
+        if (DISABLE_CLAUDE_FALLBACK) throw new Error("ANTHROPIC_API_KEY not configured");
+        console.error(`[claude_chat] no API key — falling back to ollama:${CLAUDE_FALLBACK_MODEL}`);
+        const text = await ollamaChat({ prompt: args.prompt, model: CLAUDE_FALLBACK_MODEL, system: args.system, temperature: args.temperature });
+        return { content: [{ type: "text", text }] };
+      }
+
       const body = {
         model:      "claude-sonnet-4-6",
         max_tokens: args.max_tokens || 1024,
@@ -251,19 +348,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
       if (args.system) body.system = args.system;
 
-      const resp = await fetch(CLAUDE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type":    "application/json",
-          "x-api-key":       CLAUDE_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) throw new Error(`Claude error ${resp.status}: ${await resp.text()}`);
-      const data = await resp.json();
-      const text = data.content?.[0]?.text || "(no response)";
-      return { content: [{ type: "text", text: truncate(text) }] };
+      try {
+        const resp = await fetch(CLAUDE_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type":    "application/json",
+            "x-api-key":       CLAUDE_API_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) throw new Error(`Claude error ${resp.status}: ${await resp.text()}`);
+        const data = await resp.json();
+        const text = data.content?.[0]?.text || "(no response)";
+        return { content: [{ type: "text", text: truncate(text) }] };
+      } catch (err) {
+        if (DISABLE_CLAUDE_FALLBACK) throw err;
+        console.error(`[claude_chat] Claude failed (${err.message}) — falling back to ollama:${CLAUDE_FALLBACK_MODEL}`);
+        const text = await ollamaChat({ prompt: args.prompt, model: CLAUDE_FALLBACK_MODEL, system: args.system, temperature: args.temperature });
+        return { content: [{ type: "text", text }] };
+      }
     }
 
     return {
@@ -282,3 +386,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error("Hermes MCP server started. Workspace:", WORKSPACE_ROOT);
+console.error("Capabilities:", JSON.stringify({
+  ssh: ALLOW_SSH,
+  unrestricted_shell: ALLOW_UNRESTRICTED_SHELL,
+  fs_unrestricted: FS_UNRESTRICTED,
+  fs_write_anywhere: FS_ALLOW_WRITE_ANYWHERE,
+  fs_delete: FS_ALLOW_DELETE,
+  claude_fallback: CLAUDE_API_KEY ? "claude" : (DISABLE_CLAUDE_FALLBACK ? "none" : `ollama:${CLAUDE_FALLBACK_MODEL}`),
+}));

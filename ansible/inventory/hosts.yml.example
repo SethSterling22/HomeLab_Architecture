@@ -1,60 +1,72 @@
 # ansible/inventory/hosts.yml
-# Copia este archivo como hosts.yml y rellena con tus IPs y MACs reales
+# Copy this file as hosts.yml and fill in your real IPs and MACs.
+#
+# Architecture notes:
+#   - Sadida is the Proxmox VE host. The k3s control-plane (master) runs
+#     directly ON this host, and Ollama also runs locally on it (GPU node).
+#   - Ocra is the always-on "brain": it runs the Docker Compose stack
+#     (n8n + hermes-gateway + postgres + tailscale), NOT k3s.
+#   - LAN subnet is 192.168.68.0/24. Tailscale (100.x) is used for links
+#     that must survive LAN reconfigurations.
 ---
 all:
   children:
 
-    # ── Nodos siempre encendidos ─────────────────────────────────
+    # ── Always-on nodes ──────────────────────────────────────────
     always_on:
       hosts:
-        nitro:
-          ansible_host: 192.168.1.10
-          ansible_user: root
-          role: proxmox_hypervisor
+        sadida:
+          ansible_host: 192.168.68.10
+          ansible_user: seth
+          role: proxmox_hypervisor   # also k3s master + local Ollama (GPU)
         aery:
-          ansible_host: 192.168.1.20
+          ansible_host: 192.168.68.190
           ansible_user: admin
           role: nas
           synology: true
 
-    # ── Workers k3s permanentes ──────────────────────────────────
+    # ── Always-on brain (Docker Compose, not k3s) ────────────────
+    compose_brain:
+      hosts:
+        ocra:
+          ansible_host: 192.168.68.100
+          ansible_user: seth
+          role: docker_compose        # n8n + hermes-gateway + postgres
+
+    # ── Permanent k3s workers ────────────────────────────────────
     k3s_workers_permanent:
       hosts:
         sram:
-          ansible_host: 192.168.1.30
-          ansible_user: ubuntu
-          k3s_role: worker
-        ocra:
-          ansible_host: 192.168.1.40
-          ansible_user: ubuntu
+          ansible_host: 192.168.68.108
+          ansible_user: seth
           k3s_role: worker
 
-    # ── Workers on-demand (WOL) ──────────────────────────────────
+    # ── On-demand k3s workers (Wake-on-LAN) ──────────────────────
     k3s_workers_ondemand:
       hosts:
         xelor:
-          ansible_host: 192.168.1.50
-          ansible_user: ubuntu
+          ansible_host: 192.168.68.114
+          ansible_user: seth
           k3s_role: worker
-          wol_mac: "AA:BB:CC:DD:EE:01"   # ← reemplaza con MAC real
-          wol_broadcast: "192.168.1.255"
+          wol_mac: "88:ae:1d:6c:e4:06"
+          wol_broadcast: "192.168.68.255"
         sacro:
-          ansible_host: 192.168.1.60
-          ansible_user: ubuntu
+          ansible_host: 192.168.68.115
+          ansible_user: seth
           k3s_role: worker
-          wol_mac: "AA:BB:CC:DD:EE:02"   # ← reemplaza con MAC real
-          wol_broadcast: "192.168.1.255"
+          wol_mac: "68:f7:28:83:d6:77"
+          wol_broadcast: "192.168.68.255"
 
-    # ── Grupos lógicos ───────────────────────────────────────────
+    # ── Logical groups ───────────────────────────────────────────
     k3s_workers:
       children:
         k3s_workers_permanent:
         k3s_workers_ondemand:
 
-    # El master k3s corre como VM dentro de Nitro
+    # The k3s master runs directly on the Sadida Proxmox host (no VM).
     k3s_master:
       hosts:
-        nitro-k3s-master:
-          ansible_host: 192.168.1.11   # IP de la VM master dentro de Proxmox
-          ansible_user: ubuntu
+        sadida:
+          ansible_host: 192.168.68.10
+          ansible_user: seth
           k3s_role: master

@@ -32,6 +32,18 @@ data:
   WORKSPACE_ROOT: "/workspace"
   NODE_ENV: "production"
   PORT: "8080"
+  # ── Capability toggles (default: locked down) ──────────────────────────────
+  # Flip to "true" to grant a capability. Note: the pod securityContext below
+  # drops ALL Linux capabilities and runs non-root, so unrestricted shell that
+  # needs privileged actions may also require relaxing securityContext.
+  HERMES_ALLOW_SSH: "false"                 # ssh/scp/sftp/rsync to cluster nodes
+  HERMES_ALLOW_UNRESTRICTED_SHELL: "false"  # any command via bash -lc
+  HERMES_SHELL_EXTRA: ""                    # extra binaries, e.g. "rm,mv,cp,tar"
+  HERMES_FS_UNRESTRICTED: "false"           # read/write/delete outside /workspace
+  HERMES_FS_ALLOW_WRITE_ANYWHERE: "false"
+  HERMES_FS_ALLOW_DELETE: "false"
+  # Local model used when Claude is unavailable (empty ANTHROPIC_API_KEY -> fallback).
+  HERMES_CLAUDE_FALLBACK_MODEL: "qwen3.5:4b"
 
 ---
 # PersistentVolumeClaim for the sandbox workspace

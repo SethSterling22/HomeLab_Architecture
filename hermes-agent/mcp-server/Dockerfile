@@ -1,9 +1,11 @@
 FROM node:20-alpine
 
-# Shell tools that are in the server's allowlist
+# Shell tools that are in the server's allowlist.
+# openssh-client + rsync are included so the HERMES_ALLOW_SSH toggle works when enabled.
 RUN apk add --no-cache \
     bash curl git jq python3 py3-pip \
-    coreutils findutils grep
+    coreutils findutils grep \
+    openssh-client rsync
 
 # Non-root user for the MCP process
 RUN addgroup -g 1001 hermes && adduser -u 1001 -G hermes -s /bin/sh -D hermes
