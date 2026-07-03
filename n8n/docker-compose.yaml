@@ -10,7 +10,7 @@ services:
     restart: always
     environment:
       - POSTGRES_USER=n8n_admin
-      - POSTGRES_PASSWORD=@UnaContraseñaSegura192837
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=n8n_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -31,7 +31,11 @@ services:
     image: tailscale/tailscale:latest
     container_name: n8n_tailscale
     restart: always
-    hostname: ocra # Node name in Tailscale network, can be anything
+    hostname: ocra-n8n # Name in the tailnet. Do NOT use "ocra": it collides with the physical Ocra node.
+    # n8n shares this netns (network_mode: service:tailscale), so the n8n UI port
+    # must be published HERE, not on the n8n service.
+    ports:
+      - "5678:5678"
     environment:
       - TS_AUTHKEY=${TS_AUTHKEY}     # defined in .env — generates one at tailscale.com/settings/keys
       - TS_STATE_DIR=/var/lib/tailscale
@@ -39,7 +43,7 @@ services:
       - TS_ACCEPT_DNS=true
     volumes:
       - tailscale_state:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun    # Neccesary driver for kernel
+      - /dev/net/tun:/dev/net/tun    # Necessary driver for the kernel
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -57,19 +61,19 @@ services:
     restart: always
     # Sharing the Tailscale network allows n8n to reach other Tailscale nodes by their MagicDNS names
     network_mode: "service:tailscale"
-    ports:
-      - "5678:5678"
+    # NOTE: with network_mode: service:tailscale, "ports" is ignored here.
+    # Port 5678 is published on the "tailscale" service.
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=n8n_db
       - DB_POSTGRESDB_USER=n8n_admin
-      - DB_POSTGRESDB_PASSWORD=@UnaContraseñaSegura192837
-      - N8N_ENCRYPTION_KEY=5734f43198415a2982183e067967758c7fe8bd129244e166fc45b7b4949884b7
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - WEBHOOK_URL=https://ocra.stegosaurus-panga.ts.net/
       - N8N_EDITOR_BASE_URL=https://ocra.stegosaurus-panga.ts.net/
-      # Hermes gateway — Accesible accesible en localhost porque comparten red con tailscale
+      # Hermes gateway — reachable on localhost because they share the tailscale network
       - HERMES_URL=http://localhost:8080
     volumes:
       - n8n_data:/home/node/.n8n
@@ -84,7 +88,11 @@ services:
   # Agent brain. Exposes tools for filesystem, shell, and LLMs via HTTP.
   # Shared network with Tailscale allows it to reach other Tailscale nodes by their MagicDNS names.
   hermes-gateway:
-    image: hermes-mcp:local          # Build with: docker build -t hermes-mcp:local ./hermes
+    image: hermes-mcp:local
+    # Build context is the gateway folder (Dockerfile runs gateway.js on :8080).
+    # "docker compose up --build" builds the image automatically.
+    build:
+      context: ../hermes-agent/mcp-server
     container_name: hermes_gateway
     restart: always
     network_mode: "service:tailscale"

@@ -2,11 +2,12 @@
   "name": "hermes-mcp-server",
   "version": "1.0.0",
   "type": "module",
-  "description": "Hermes — MCP server con filesystem sandbox, shell y APIs de LLM",
-  "main": "server.js",
+  "description": "Hermes — MCP server with filesystem sandbox, shell, and LLM APIs",
+  "main": "gateway.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "WORKSPACE_ROOT=./dev-workspace node server.js"
+    "start": "node gateway.js",
+    "mcp": "node server.js",
+    "dev": "WORKSPACE_ROOT=./dev-workspace node gateway.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

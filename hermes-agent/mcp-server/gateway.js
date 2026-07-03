@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 /**
  * Hermes HTTP Gateway
- * Envuelve el MCP server en un servidor HTTP para que n8n
- * pueda llamarlo con el nodo HTTP Request sin necesidad de
- * un protocolo MCP nativo.
+ * Wraps the MCP server in an HTTP server so n8n can call it
+ * with the HTTP Request node, without needing a native MCP protocol.
  *
- * POST /tool/:name   — ejecuta una tool con body JSON como args
+ * POST /tool/:name   — run a tool with the JSON body as its args
  * GET  /health       — health check
- * GET  /tools        — lista tools disponibles
+ * GET  /tools        — list available tools
  */
 
 import { createServer } from "http";
@@ -21,7 +20,9 @@ const execFileAsync = promisify(execFile);
 const PORT           = parseInt(process.env.PORT || "8080");
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || "/workspace";
 const OUTPUT_DIR     = path.join(WORKSPACE_ROOT, "output");
-const OLLAMA_URL     = process.env.OLLAMA_URL || "http://ollama-svc:11434";
+// Ollama runs locally on Sadida (host, not a pod). Reachable via its Tailscale
+// MagicDNS name or local IP. Override with OLLAMA_URL.
+const OLLAMA_URL     = process.env.OLLAMA_URL || "http://sadida.stegosaurus-panga.ts.net:11434";
 const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const MAX_OUTPUT_LEN = 8000;
 
@@ -38,14 +39,14 @@ await fs.mkdir(OUTPUT_DIR, { recursive: true });
 function assertInWorkspace(p) {
   const resolved = path.resolve(p);
   if (!resolved.startsWith(path.resolve(WORKSPACE_ROOT))) {
-    throw new Error(`Acceso denegado: '${p}' está fuera del workspace`);
+    throw new Error(`Access denied: '${p}' is outside the workspace`);
   }
   return resolved;
 }
 
 function truncate(text, max = MAX_OUTPUT_LEN) {
   if (!text || text.length <= max) return text || "";
-  return text.slice(0, max) + `\n… [truncado, ${text.length - max} chars más]`;
+  return text.slice(0, max) + `\n… [truncated, ${text.length - max} more chars]`;
 }
 
 const TOOLS = {
@@ -55,7 +56,7 @@ const TOOLS = {
     const lines   = entries.map(e =>
       `${e.isDirectory() ? "DIR " : "FILE"}  ${e.name}`
     );
-    return `Contenido de ${safe}:\n${lines.join("\n") || "(vacío)"}`;
+    return `Contents of ${safe}:\n${lines.join("\n") || "(empty)"}`;
   },
 
   fs_read: async ({ path: p, max_bytes }) => {
@@ -66,7 +67,7 @@ const TOOLS = {
     const { bytesRead } = await handle.read(buf, 0, maxBytes, 0);
     await handle.close();
     const content = buf.slice(0, bytesRead).toString("utf8");
-    const suffix  = bytesRead === maxBytes ? "\n… [truncado]" : "";
+    const suffix  = bytesRead === maxBytes ? "\n… [truncated]" : "";
     return content + suffix;
   },
 
@@ -74,7 +75,7 @@ const TOOLS = {
     const name    = path.basename(filename);
     const outPath = path.join(OUTPUT_DIR, name);
     await fs.writeFile(outPath, content, { flag: append ? "a" : "w", encoding: "utf8" });
-    return `Escrito: ${outPath}`;
+    return `Written: ${outPath}`;
   },
 
   shell_exec: async ({ command, timeout }) => {
@@ -82,7 +83,7 @@ const TOOLS = {
     const binary = parts[0];
     const args   = parts.slice(1);
     if (!SHELL_ALLOWLIST.includes(binary)) {
-      throw new Error(`Comando '${binary}' no permitido. Allowlist: ${SHELL_ALLOWLIST.join(", ")}`);
+      throw new Error(`Command '${binary}' not allowed. Allowlist: ${SHELL_ALLOWLIST.join(", ")}`);
     }
     const { stdout, stderr } = await execFileAsync(binary, args, {
       cwd: WORKSPACE_ROOT,
@@ -109,11 +110,11 @@ const TOOLS = {
     });
     if (!resp.ok) throw new Error(`Ollama ${resp.status}: ${await resp.text()}`);
     const data = await resp.json();
-    return truncate(data.message?.content || "(sin respuesta)");
+    return truncate(data.message?.content || "(no response)");
   },
 
   claude_chat: async ({ prompt, system, max_tokens }) => {
-    if (!CLAUDE_API_KEY) throw new Error("ANTHROPIC_API_KEY no configurado");
+    if (!CLAUDE_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
     const body = {
       model:      "claude-sonnet-4-6",
       max_tokens: max_tokens || 1024,
@@ -131,7 +132,7 @@ const TOOLS = {
     });
     if (!resp.ok) throw new Error(`Claude ${resp.status}: ${await resp.text()}`);
     const data = await resp.json();
-    return truncate(data.content?.[0]?.text || "(sin respuesta)");
+    return truncate(data.content?.[0]?.text || "(no response)");
   },
 };
 
@@ -143,7 +144,7 @@ function parseBody(req) {
     req.on("data", chunk => (data += chunk));
     req.on("end", () => {
       try { resolve(data ? JSON.parse(data) : {}); }
-      catch (e) { reject(new Error("JSON inválido en el body")); }
+      catch (e) { reject(new Error("Invalid JSON in body")); }
     });
     req.on("error", reject);
   });
@@ -177,7 +178,7 @@ const srv = createServer(async (req, res) => {
     const toolName = url.pathname.replace("/tool/", "").split("/")[0];
     const handler  = TOOLS[toolName];
     if (!handler) {
-      return send(res, 404, { error: `Tool '${toolName}' no existe`, available: Object.keys(TOOLS) });
+      return send(res, 404, { error: `Tool '${toolName}' does not exist`, available: Object.keys(TOOLS) });
     }
     try {
       const args   = await parseBody(req);
@@ -188,11 +189,11 @@ const srv = createServer(async (req, res) => {
     }
   }
 
-  send(res, 404, { error: "Ruta no encontrada" });
+  send(res, 404, { error: "Route not found" });
 });
 
 srv.listen(PORT, "0.0.0.0", () => {
-  console.log(`Hermes HTTP gateway escuchando en :${PORT}`);
+  console.log(`Hermes HTTP gateway listening on :${PORT}`);
   console.log(`Workspace: ${WORKSPACE_ROOT}`);
   console.log(`Ollama:    ${OLLAMA_URL}`);
 });

@@ -1,15 +1,15 @@
 ---
-# Namespace dedicado para el agente
+# Dedicated namespace for the agent
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cerebro
 
 ---
-# Secret para las API keys — rellena con tus valores antes de aplicar
+# Secret for the API keys — fill in with your values before applying
 # kubectl create secret generic hermes-secrets -n cerebro \
-#   --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
-#   --from-literal=TELEGRAM_BOT_TOKEN="..."
+#   --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
+# The Telegram token does NOT go here: it is handled by n8n, not Hermes.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -18,23 +18,24 @@ metadata:
 type: Opaque
 stringData:
   ANTHROPIC_API_KEY: "REPLACE_ME"
-  TELEGRAM_BOT_TOKEN: "REPLACE_ME"
 
 ---
-# ConfigMap con configuración no-secreta
+# ConfigMap with non-secret configuration
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: hermes-config
   namespace: cerebro
 data:
-  OLLAMA_URL: "http://ollama-svc.cerebro.svc.cluster.local:11434"
+  # Ollama runs LOCALLY on Sadida (host, not a pod). Reachable via Tailscale/MagicDNS.
+  OLLAMA_URL: "http://sadida.stegosaurus-panga.ts.net:11434"
   WORKSPACE_ROOT: "/workspace"
   NODE_ENV: "production"
+  PORT: "8080"
 
 ---
-# PersistentVolumeClaim para el workspace del sandbox
-# Usa el NFS de Aery como backend de storage
+# PersistentVolumeClaim for the sandbox workspace
+# Uses Aery's NFS as the storage backend
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -43,13 +44,13 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany
-  storageClassName: nfs-client   # ajusta al nombre de tu StorageClass NFS
+  storageClassName: nfs-client   # adjust to the name of your NFS StorageClass
   resources:
     requests:
       storage: 10Gi
 
 ---
-# Deployment del MCP server — forzado a Ocra via nodeSelector
+# MCP server Deployment — pinned to Ocra via nodeSelector
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -67,19 +68,19 @@ spec:
       labels:
         app: hermes-mcp
     spec:
-      # Forzar a Ocra — ajusta el hostname si es diferente
+      # Pin to Ocra — adjust the hostname if different
       nodeSelector:
         kubernetes.io/hostname: ocra
 
-      # Sin acceso a la red del host
+      # No access to the host network
       hostNetwork: false
       hostPID: false
       hostIPC: false
 
       containers:
         - name: hermes-mcp
-          image: ghcr.io/tu-usuario/hermes-mcp:latest
-          # Para desarrollo local sin registry:
+          image: ghcr.io/your-user/hermes-mcp:latest
+          # For local development without a registry:
           # image: hermes-mcp:local
           # imagePullPolicy: Never
 
@@ -99,21 +100,21 @@ spec:
             - containerPort: 8080
               name: http
 
-          # ── Sandbox de seguridad ─────────────────────────────────────────
+          # ── Security sandbox ─────────────────────────────────────────────
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             runAsGroup: 1001
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false   # false para /tmp y npm cache
+            readOnlyRootFilesystem: false   # false for /tmp and npm cache
             capabilities:
               drop:
                 - ALL
-              # NO añadir capabilities — si un tool necesita NET_RAW, úsalo vía curl
+              # Do NOT add capabilities — if a tool needs NET_RAW, use it via curl
             seccompProfile:
               type: RuntimeDefault
 
-          # ── Recursos ─────────────────────────────────────────────────────
+          # ── Resources ────────────────────────────────────────────────────
           resources:
             requests:
               cpu: "200m"
@@ -122,23 +123,30 @@ spec:
               cpu: "1000m"
               memory: "512Mi"
 
-          # ── Volúmenes ─────────────────────────────────────────────────────
+          # ── Volumes ──────────────────────────────────────────────────────
           volumeMounts:
-            # Workspace principal — lectura/escritura controlada
+            # Main workspace — controlled read/write
             - name: workspace
               mountPath: /workspace
 
-            # /tmp writable para herramientas que lo necesiten
+            # /tmp writable for tools that need it
             - name: tmp
               mountPath: /tmp
 
           # ── Health checks ─────────────────────────────────────────────────
-          # MCP sobre stdio no tiene HTTP endpoint; usamos un script simple
+          # The HTTP gateway exposes /health on :8080
           livenessProbe:
-            exec:
-              command: ["node", "-e", "process.exit(0)"]
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
 
       volumes:
         - name: workspace
@@ -147,11 +155,11 @@ spec:
         - name: tmp
           emptyDir: {}
 
-      # Reiniciar siempre si el proceso muere
+      # Always restart if the process dies
       restartPolicy: Always
 
 ---
-# Service interno del cluster para que n8n y otros pods lo alcancen
+# Internal cluster Service so n8n and other pods can reach it
 apiVersion: v1
 kind: Service
 metadata:
@@ -166,97 +174,11 @@ spec:
       targetPort: 8080
   type: ClusterIP
 
----
-# Deployment de Ollama — forzado a Sram
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ollama
-  namespace: cerebro
-  labels:
-    app: ollama
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: ollama
-  template:
-    metadata:
-      labels:
-        app: ollama
-    spec:
-      nodeSelector:
-        kubernetes.io/hostname: sram
-
-      containers:
-        - name: ollama
-          image: ollama/ollama:latest
-          imagePullPolicy: Always
-
-          ports:
-            - containerPort: 11434
-              name: api
-
-          env:
-            - name: OLLAMA_HOST
-              value: "0.0.0.0"
-            - name: OLLAMA_KEEP_ALIVE
-              value: "24h"
-            # Si Sram tiene GPU NVIDIA, descomenta:
-            # - name: NVIDIA_VISIBLE_DEVICES
-            #   value: "all"
-
-          resources:
-            requests:
-              cpu: "500m"
-              memory: "2Gi"
-            limits:
-              cpu: "4000m"
-              memory: "8Gi"
-
-          volumeMounts:
-            - name: ollama-models
-              mountPath: /root/.ollama
-
-          livenessProbe:
-            httpGet:
-              path: /api/tags
-              port: 11434
-            initialDelaySeconds: 30
-            periodSeconds: 30
-
-      volumes:
-        - name: ollama-models
-          persistentVolumeClaim:
-            claimName: ollama-models-pvc
-
----
-# PVC para modelos de Ollama (pesados — 10-20 GB)
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ollama-models-pvc
-  namespace: cerebro
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: nfs-client
-  resources:
-    requests:
-      storage: 30Gi
-
----
-# Service de Ollama — accesible en el cluster como ollama-svc
-apiVersion: v1
-kind: Service
-metadata:
-  name: ollama-svc
-  namespace: cerebro
-spec:
-  selector:
-    app: ollama
-  ports:
-    - name: api
-      port: 11434
-      targetPort: 11434
-  type: ClusterIP
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: Ollama is NOT deployed in the cluster.
+# It runs locally on Sadida (host, the only node with a discrete GPU, RTX 3050).
+# Hermes reaches it via the ConfigMap's OLLAMA_URL (Sadida's Tailscale MagicDNS).
+# Models are installed directly on Sadida:
+#   ollama pull qwen3:1.7b
+#   ollama pull qwen3.5:4b
+# ─────────────────────────────────────────────────────────────────────────────
