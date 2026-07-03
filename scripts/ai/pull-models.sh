@@ -1,39 +1,35 @@
 #!/usr/bin/env bash
 # scripts/ai/pull-models.sh
-# Descarga los modelos AI en Ollama (corre en la VM nitro-ollama)
+# Pulls the AI models into Ollama (runs locally on Sadida, host service with GPU).
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-OLLAMA_HOST="${OLLAMA_HOST:-http://192.168.1.12:11434}"
+# Ollama runs locally on Sadida (RTX 3050). Reachable over Tailscale MagicDNS or LAN IP.
+OLLAMA_HOST="${OLLAMA_HOST:-http://sadida.stegosaurus-panga.ts.net:11434}"
 
 log()  { echo -e "${CYAN}[Ollama]${NC} $*"; }
 ok()   { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 
-# ── Modelos a instalar ────────────────────────────────────────────
-# Con 32GB RAM y GPU, estos modelos corren bien:
-# - llama3:8b       ~5 GB  — rápido, bueno para tasks generales
-# - mistral:7b      ~4 GB  — eficiente, gran calidad
-# - hermes2:7b      ~4 GB  — ajustado para instrucciones
-# - codellama:13b   ~8 GB  — para Sram (coding)
-# Ajusta según VRAM disponible de tu GPU
-
+# ── Models to install ─────────────────────────────────────────────
+# These are the two models the Hermes/n8n stack expects:
+# - qwen3:1.7b    small, fast — intent classifier
+# - qwen3.5:4b    main conversational agent (chat / simple queries)
+# Adjust to the VRAM available on your GPU.
 MODELS=(
-  "llama3:8b"
-  "mistral:7b"
-  "hermes2-pro-llama3:8b"
-  "codellama:13b"
+  "qwen3:1.7b"
+  "qwen3.5:4b"
 )
 
 check_ollama() {
-  log "Verificando Ollama en ${OLLAMA_HOST}..."
+  log "Checking Ollama at ${OLLAMA_HOST}..."
   if ! curl -sf "${OLLAMA_HOST}/api/tags" &>/dev/null; then
-    err "No se puede conectar a Ollama en ${OLLAMA_HOST}"
+    err "Cannot connect to Ollama at ${OLLAMA_HOST}"
   fi
-  ok "Ollama responde"
+  ok "Ollama is responding"
 }
 
 list_installed() {
@@ -52,12 +48,12 @@ pull_model() {
   installed=$(list_installed)
 
   if echo "$installed" | grep -qx "$model"; then
-    ok "Modelo '${model}' ya instalado — saltando"
+    ok "Model '${model}' already installed — skipping"
     return 0
   fi
 
-  log "Descargando ${BLUE}${model}${NC}..."
-  # Usar streaming para mostrar progreso
+  log "Pulling ${BLUE}${model}${NC}..."
+  # Use streaming to show progress
   curl -sf -X POST "${OLLAMA_HOST}/api/pull" \
     -H "Content-Type: application/json" \
     -d "{\"name\": \"${model}\", \"stream\": true}" | \
@@ -68,12 +64,12 @@ pull_model() {
       fi
     done
   echo ""
-  ok "Modelo '${model}' listo"
+  ok "Model '${model}' ready"
 }
 
 print_summary() {
   echo ""
-  log "Modelos instalados en Ollama:"
+  log "Models installed in Ollama:"
   curl -sf "${OLLAMA_HOST}/api/tags" | \
     python3 -c "
 import sys, json
@@ -94,11 +90,11 @@ main() {
     exit 0
   fi
 
-  # Si se pasa un modelo específico como argumento, solo ese
+  # If a specific model is passed as an argument, pull only that one
   if [[ -n "${1:-}" ]]; then
     pull_model "$1"
   else
-    log "Instalando ${#MODELS[@]} modelos..."
+    log "Installing ${#MODELS[@]} models..."
     for model in "${MODELS[@]}"; do
       pull_model "$model"
     done

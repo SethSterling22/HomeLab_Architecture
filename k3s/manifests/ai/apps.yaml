@@ -1,5 +1,15 @@
 ---
-# k3s/manifests/ai/openclaw.yaml
+# k3s/manifests/ai/apps.yaml
+# Optional web UI for the AI namespace.
+#
+# NOTE on Hermes: the real Hermes (the custom HTTP gateway / agent brain) is NOT
+# defined here. It runs on Ocra via Docker Compose (see ../../../n8n/docker-compose.yaml),
+# and its optional k8s manifest lives in ../../../hermes-agent/k8s/hermes-stack.yaml.
+# This file only carries OpenClaw, an optional chat web UI that talks to Ollama.
+#
+# OpenClaw reaches Ollama through the ExternalName Service in ollama.yaml
+# (ollama.ai.svc.cluster.local:11434 → Sadida, where Ollama runs locally).
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,7 +27,7 @@ spec:
       labels:
         app: openclaw
     spec:
-      # Preferir Sram u Ocra para la UI
+      # Prefer Sram or Ocra for the UI
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -29,7 +39,7 @@ spec:
                     values: ["sram", "ocra"]
       containers:
         - name: openclaw
-          image: openclaw/openclaw:latest   # reemplaza con la imagen real
+          image: openclaw/openclaw:latest   # replace with the real image
           ports:
             - containerPort: 3000
               name: http
@@ -69,57 +79,7 @@ spec:
       targetPort: 3000
   type: ClusterIP
 ---
-# k3s/manifests/ai/hermes.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: hermes
-  namespace: ai
-  labels:
-    app: hermes
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: hermes
-  template:
-    metadata:
-      labels:
-        app: hermes
-    spec:
-      containers:
-        - name: hermes
-          image: ghcr.io/teknium1/hermes:latest   # reemplaza con imagen real
-          ports:
-            - containerPort: 8080
-              name: http
-          env:
-            - name: OLLAMA_URL
-              value: "http://ollama.ai.svc.cluster.local:11434"
-            - name: DEFAULT_MODEL
-              value: "hermes2-pro-llama3:8b"
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "100m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: hermes
-  namespace: ai
-spec:
-  selector:
-    app: hermes
-  ports:
-    - port: 80
-      targetPort: 8080
-  type: ClusterIP
----
-# Secret placeholder — rellena con valores reales o usa Sealed Secrets
+# Secret placeholder — fill in with a real value or use Sealed Secrets
 apiVersion: v1
 kind: Secret
 metadata:
@@ -127,4 +87,4 @@ metadata:
   namespace: ai
 type: Opaque
 stringData:
-  secret-key: "cambia-por-un-secreto-seguro"   # openssl rand -hex 32
+  secret-key: "change-me-to-a-secure-secret"   # openssl rand -hex 32

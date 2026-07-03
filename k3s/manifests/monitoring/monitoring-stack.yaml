@@ -1,7 +1,7 @@
 ---
 # k3s/manifests/monitoring/monitoring-stack.yaml
-# Stack de observabilidad: Prometheus + Grafana + Loki
-# Diseñado para correr principalmente en Sacro cuando está encendido
+# Observability stack: Prometheus + Grafana + Loki
+# Designed to run mainly on Sacro when it is powered on.
 
 # ── Prometheus ────────────────────────────────────────────────────
 apiVersion: apps/v1
@@ -127,6 +127,7 @@ data:
             action: keep
             regex: true
 
+      # Ollama runs locally on Sadida; reached via the ExternalName Service in ai namespace
       - job_name: 'ollama'
         static_configs:
           - targets: ['ollama.ai.svc.cluster.local:11434']
@@ -191,4 +192,4 @@ metadata:
   namespace: monitoring
 type: Opaque
 stringData:
-  admin-password: "cambia-esto"   # openssl rand -base64 16
+  admin-password: "change-me"   # openssl rand -base64 16

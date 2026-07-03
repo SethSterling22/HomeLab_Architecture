@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
 # scripts/wol/status.sh
-# Muestra el estado de todos los nodos del home lab
+# Shows the status of every node in the home lab.
 set -euo pipefail
 
-# ── Colores ──────────────────────────────────────────────────────
+# ── Colors ────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; GRAY='\033[0;37m'; NC='\033[0m'
 BOLD='\033[1m'
 
-# ── Nodos ─────────────────────────────────────────────────────────
+# ── Nodes ─────────────────────────────────────────────────────────
 declare -A NODES=(
-  [nitro]="192.168.1.10"
-  [aery]="192.168.1.20"
-  [sram]="192.168.1.30"
-  [ocra]="192.168.1.40"
-  [xelor]="192.168.1.50"
-  [sacro]="192.168.1.60"
+  [sadida]="192.168.68.10"
+  [aery]="192.168.1.13"
+  [sram]="192.168.68.108"
+  [ocra]="192.168.68.100"
+  [xelor]="192.168.68.114"
+  [sacro]="192.168.68.115"
 )
 declare -A NODE_ROLES=(
-  [nitro]="Proxmox VE · GPU"
-  [aery]="NAS · Synology DSM"
+  [sadida]="Proxmox VE · k3s master · Ollama (local, GPU)"
+  [aery]="NAS · Synology DSM · NFS"
   [sram]="k3s worker · dev"
-  [ocra]="k3s worker · AI UI"
-  [xelor]="k3s worker · staging (on-demand)"
-  [sacro]="k3s worker · monitoring (on-demand)"
+  [ocra]="Brain 24/7 · Docker Compose (n8n + Hermes + postgres)"
+  [xelor]="k3s worker · staging / CI (on-demand)"
+  [sacro]="k3s worker · observability (on-demand)"
 )
 declare -A NODE_TIER=(
-  [nitro]="always"
+  [sadida]="always"
   [aery]="always"
   [sram]="always"
   [ocra]="always"
@@ -34,7 +34,10 @@ declare -A NODE_TIER=(
   [sacro]="ondemand"
 )
 
-# ── Funciones ─────────────────────────────────────────────────────
+# Ollama runs locally on Sadida (host service, not a pod).
+OLLAMA_HOST="${OLLAMA_HOST:-http://sadida.stegosaurus-panga.ts.net:11434}"
+
+# ── Functions ─────────────────────────────────────────────────────
 ping_node() {
   local ip="$1"
   ping -c1 -W1 "$ip" &>/dev/null 2>&1
@@ -54,11 +57,11 @@ get_k3s_status() {
 print_header() {
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BOLD}║           🏠  HomeLab — Estado de Nodos                     ║${NC}"
+  echo -e "${BOLD}║           🏠  HomeLab — Node Status                          ║${NC}"
   echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
   echo -e "  $(date '+%Y-%m-%d %H:%M:%S %Z')"
   echo ""
-  printf "  ${BOLD}%-10s %-16s %-10s %-12s  %s${NC}\n" "NODO" "IP" "PING" "k3s" "ROL"
+  printf "  ${BOLD}%-10s %-16s %-10s %-12s  %s${NC}\n" "NODE" "IP" "PING" "k3s" "ROLE"
   echo -e "  ${GRAY}──────────────────────────────────────────────────────────────${NC}"
 }
 
@@ -97,19 +100,17 @@ check_node() {
 }
 
 print_ollama_status() {
-  local ollama_ip="192.168.1.12"
-  local ollama_port="11434"
   echo ""
-  echo -e "  ${BOLD}Ollama (Nitro VM)${NC}"
+  echo -e "  ${BOLD}Ollama (local on Sadida)${NC}"
   echo -e "  ${GRAY}──────────────────────────────────────────────────────────────${NC}"
-  if curl -sf "http://${ollama_ip}:${ollama_port}/api/tags" &>/dev/null; then
+  if curl -sf "${OLLAMA_HOST}/api/tags" &>/dev/null; then
     local models
-    models=$(curl -sf "http://${ollama_ip}:${ollama_port}/api/tags" | \
-      python3 -c "import sys,json; d=json.load(sys.stdin); [print('   •',m['name']) for m in d.get('models',[])]" 2>/dev/null || echo "   (error leyendo modelos)")
-    echo -e "  ${GREEN}● Ollama responde${NC}"
+    models=$(curl -sf "${OLLAMA_HOST}/api/tags" | \
+      python3 -c "import sys,json; d=json.load(sys.stdin); [print('   •',m['name']) for m in d.get('models',[])]" 2>/dev/null || echo "   (error reading models)")
+    echo -e "  ${GREEN}● Ollama is responding${NC}"
     echo "$models"
   else
-    echo -e "  ${YELLOW}○ Ollama no responde en ${ollama_ip}:${ollama_port}${NC}"
+    echo -e "  ${YELLOW}○ Ollama not responding at ${OLLAMA_HOST}${NC}"
   fi
 }
 
@@ -117,14 +118,14 @@ print_ollama_status() {
 main() {
   print_header
 
-  for node in nitro aery sram ocra xelor sacro; do
+  for node in sadida aery sram ocra xelor sacro; do
     check_node "$node"
   done
 
   print_ollama_status
 
   echo ""
-  echo -e "  ${GRAY}Tip: ./scripts/wol/wake.sh xelor   — despertar un nodo on-demand${NC}"
+  echo -e "  ${GRAY}Tip: ./scripts/wol/wake.sh xelor   — wake an on-demand node${NC}"
   echo ""
 }
 

@@ -1,7 +1,10 @@
 ---
 # k3s/manifests/ingress/ingressroutes.yaml
-# Traefik IngressRoutes para exponer servicios
-# Accesibles en: http://<IP-de-cualquier-nodo>/<servicio>
+# Traefik IngressRoutes to expose services.
+# Reachable at: http://<any-node-IP>/<service>
+#
+# NOTE: Hermes is NOT exposed here. It runs on Ocra via Docker Compose and is
+# reached internally by n8n at http://localhost:8080 (shared Tailscale netns).
 
 # ── OpenClaw ─────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
@@ -33,35 +36,6 @@ spec:
       - /openclaw
 
 ---
-# ── Hermes ───────────────────────────────────────────────────────
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: hermes
-  namespace: ai
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: PathPrefix(`/hermes`)
-      kind: Rule
-      middlewares:
-        - name: strip-hermes
-      services:
-        - name: hermes
-          port: 80
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-hermes
-  namespace: ai
-spec:
-  stripPrefix:
-    prefixes:
-      - /hermes
-
----
 # ── Grafana ──────────────────────────────────────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -79,7 +53,7 @@ spec:
           port: 80
 
 ---
-# ── Traefik Dashboard (solo acceso interno) ───────────────────────
+# ── Traefik Dashboard (internal access only) ──────────────────────
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -98,8 +72,8 @@ spec:
         - name: api@internal
           kind: TraefikService
 ---
-# Basic auth para dashboard de Traefik
-# Genera con: htpasswd -nb admin tupassword | base64
+# Basic auth for the Traefik dashboard
+# Generate with: htpasswd -nb admin yourpassword | base64
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -116,4 +90,4 @@ metadata:
   namespace: kube-system
 type: Opaque
 stringData:
-  users: "admin:$apr1$xxxxx"   # reemplaza con hash real de htpasswd
+  users: "admin:$apr1$xxxxx"   # replace with a real htpasswd hash
