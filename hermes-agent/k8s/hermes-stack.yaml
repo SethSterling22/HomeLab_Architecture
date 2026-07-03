@@ -1,0 +1,262 @@
+---
+# Namespace dedicado para el agente
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cerebro
+
+---
+# Secret para las API keys — rellena con tus valores antes de aplicar
+# kubectl create secret generic hermes-secrets -n cerebro \
+#   --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
+#   --from-literal=TELEGRAM_BOT_TOKEN="..."
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hermes-secrets
+  namespace: cerebro
+type: Opaque
+stringData:
+  ANTHROPIC_API_KEY: "REPLACE_ME"
+  TELEGRAM_BOT_TOKEN: "REPLACE_ME"
+
+---
+# ConfigMap con configuración no-secreta
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-config
+  namespace: cerebro
+data:
+  OLLAMA_URL: "http://ollama-svc.cerebro.svc.cluster.local:11434"
+  WORKSPACE_ROOT: "/workspace"
+  NODE_ENV: "production"
+
+---
+# PersistentVolumeClaim para el workspace del sandbox
+# Usa el NFS de Aery como backend de storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-workspace-pvc
+  namespace: cerebro
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-client   # ajusta al nombre de tu StorageClass NFS
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Deployment del MCP server — forzado a Ocra via nodeSelector
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-mcp
+  namespace: cerebro
+  labels:
+    app: hermes-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-mcp
+  template:
+    metadata:
+      labels:
+        app: hermes-mcp
+    spec:
+      # Forzar a Ocra — ajusta el hostname si es diferente
+      nodeSelector:
+        kubernetes.io/hostname: ocra
+
+      # Sin acceso a la red del host
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+
+      containers:
+        - name: hermes-mcp
+          image: ghcr.io/tu-usuario/hermes-mcp:latest
+          # Para desarrollo local sin registry:
+          # image: hermes-mcp:local
+          # imagePullPolicy: Never
+
+          imagePullPolicy: Always
+
+          envFrom:
+            - configMapRef:
+                name: hermes-config
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-secrets
+                  key: ANTHROPIC_API_KEY
+
+          ports:
+            - containerPort: 8080
+              name: http
+
+          # ── Sandbox de seguridad ─────────────────────────────────────────
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # false para /tmp y npm cache
+            capabilities:
+              drop:
+                - ALL
+              # NO añadir capabilities — si un tool necesita NET_RAW, úsalo vía curl
+            seccompProfile:
+              type: RuntimeDefault
+
+          # ── Recursos ─────────────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+          # ── Volúmenes ─────────────────────────────────────────────────────
+          volumeMounts:
+            # Workspace principal — lectura/escritura controlada
+            - name: workspace
+              mountPath: /workspace
+
+            # /tmp writable para herramientas que lo necesiten
+            - name: tmp
+              mountPath: /tmp
+
+          # ── Health checks ─────────────────────────────────────────────────
+          # MCP sobre stdio no tiene HTTP endpoint; usamos un script simple
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: hermes-workspace-pvc
+        - name: tmp
+          emptyDir: {}
+
+      # Reiniciar siempre si el proceso muere
+      restartPolicy: Always
+
+---
+# Service interno del cluster para que n8n y otros pods lo alcancen
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-mcp-svc
+  namespace: cerebro
+spec:
+  selector:
+    app: hermes-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# Deployment de Ollama — forzado a Sram
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: cerebro
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: sram
+
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 11434
+              name: api
+
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "24h"
+            # Si Sram tiene GPU NVIDIA, descomenta:
+            # - name: NVIDIA_VISIBLE_DEVICES
+            #   value: "all"
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+
+---
+# PVC para modelos de Ollama (pesados — 10-20 GB)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: cerebro
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 30Gi
+
+---
+# Service de Ollama — accesible en el cluster como ollama-svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-svc
+  namespace: cerebro
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: api
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
