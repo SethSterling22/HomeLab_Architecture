@@ -1,6 +1,9 @@
-# n8n with database
+# n8n with database and Hermes gateway
 
 services:
+
+
+  # ############################ Database ############################
   postgres:
     image: postgres:16-alpine
     container_name: n8n_postgres
@@ -15,14 +18,45 @@ services:
       test: ["CMD-SHELL", "pg_isready -U n8n_admin -d n8n_db"]
       interval: 5s
       timeout: 5s
-      retries: 5  
+      retries: 5
     networks:
       - n8n_network
 
+
+  # ############################ Tailscale sidecar ############################
+  # Expose the tailscale0 interface as a shared network for n8n and Hermes.
+  # n8n and hermes-gateway share the network of this container (network_mode: service:tailscale)
+  # Giving them a shared network with Tailscale allows them to reach other Tailscale nodes by their MagicDNS names.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: n8n_tailscale
+    restart: always
+    hostname: ocra # Node name in Tailscale network, can be anything
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}     # defined in .env — generates one at tailscale.com/settings/keys
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false           # uses the VM's kernel, better performance
+      - TS_ACCEPT_DNS=true
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun    # Neccesary driver for kernel
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    networks:
+      - n8n_network
+
+
+  # ############################ n8n ############################ 
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: n8n_core
     restart: always
+    # Sharing the Tailscale network allows n8n to reach other Tailscale nodes by their MagicDNS names
+    network_mode: "service:tailscale"
     ports:
       - "5678:5678"
     environment:
@@ -32,28 +66,53 @@ services:
       - DB_POSTGRESDB_DATABASE=n8n_db
       - DB_POSTGRESDB_USER=n8n_admin
       - DB_POSTGRESDB_PASSWORD=@UnaContraseñaSegura192837
-      # Genera una clave larga y aleatoria para encriptar las credenciales en la DB
       - N8N_ENCRYPTION_KEY=5734f43198415a2982183e067967758c7fe8bd129244e166fc45b7b4949884b7
+      - WEBHOOK_URL=https://ocra.stegosaurus-panga.ts.net/
+      - N8N_EDITOR_BASE_URL=https://ocra.stegosaurus-panga.ts.net/
+      # Hermes gateway — Accesible accesible en localhost porque comparten red con tailscale
+      - HERMES_URL=http://localhost:8080
     volumes:
       - n8n_data:/home/node/.n8n
-    dns:
-      - 100.100.100.100  # <--- IP de MagicDNS de Tailscale
-    networks:
-      - n8n_network
     depends_on:
       postgres:
         condition: service_healthy
+      tailscale:
+        condition: service_started
+
+
+  # ############################ Hermes HTTP Gateway ############################
+  # Agent brain. Exposes tools for filesystem, shell, and LLMs via HTTP.
+  # Shared network with Tailscale allows it to reach other Tailscale nodes by their MagicDNS names.
+  hermes-gateway:
+    image: hermes-mcp:local          # Build with: docker build -t hermes-mcp:local ./hermes
+    container_name: hermes_gateway
+    restart: always
+    network_mode: "service:tailscale"
+    environment:
+      - PORT=8080
+      - WORKSPACE_ROOT=/workspace
+      # Sadida through MagicDNS of Tailscale (more robust than IP)
+      - OLLAMA_URL=http://sadida.stegosaurus-panga.ts.net:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}   # defined in .env
+    volumes:
+      - hermes_workspace:/workspace
+    depends_on:
+      tailscale:
+        condition: service_started
 
 volumes:
   postgres_data:
     driver: local
   n8n_data:
     driver: local
+  tailscale_state:
+    driver: local
+  hermes_workspace:
+    driver: local
 
 networks:
   n8n_network:
     driver: bridge
-
 
 # How to run it:
 # sudo docker compose up -d
