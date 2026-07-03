@@ -1,0 +1,239 @@
+{
+  "name": "Cerebro v2 — Todo via Hermes Gateway",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram — Recibir mensaje",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CRED", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json;\nconst text = msg.message?.text || msg.message?.caption || '';\nreturn [{\n  json: {\n    raw_text: text,\n    chat_id: msg.message?.chat?.id,\n    username: msg.message?.from?.username || 'unknown',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract-msg",
+      "name": "Extraer mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8080/tool/ollama_chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen3:1.7b\",\n  \"temperature\": 0.1,\n  \"system\": \"Eres un clasificador de intenciones. Responde SOLO con un JSON sin markdown.\\n\\nCategorías:\\n- TAREA: crear/consultar tareas o proyectos\\n- NOTA: crear o consultar notas en Obsidian\\n- CONTENIDO: redactar o publicar posts\\n- PROGRESO: registrar métricas o avances\\n- CONSULTA_TECNICA: preguntas técnicas complejas\\n- CONSULTA_SIMPLE: preguntas generales\\n- CHAT: conversación casual\\n\\nFormato: {\\\"intent\\\": \\\"CATEGORIA\\\", \\\"confidence\\\": 0.0-1.0, \\\"use_claude\\\": true|false}\\nuse_claude=true solo para CONSULTA_TECNICA o confidence<0.6\",\n  \"prompt\": \"={{ $json.raw_text }}\"\n}"
+      },
+      "id": "hermes-classify",
+      "name": "Hermes — Clasificar intención",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst prev = $('Extraer mensaje').first().json;\n\nlet intent;\ntry {\n  const raw = resp.result || '{}';\n  const cleaned = raw.replace(/```json\\n?/g,'').replace(/```/g,'').trim();\n  intent = JSON.parse(cleaned);\n} catch(e) {\n  intent = { intent: 'CHAT', confidence: 0.5, use_claude: false };\n}\n\nconst route = intent.use_claude ? 'CLAUDE' : intent.intent;\n\nreturn [{\n  json: {\n    ...prev,\n    intent: intent.intent || 'CHAT',\n    confidence: intent.confidence || 0.5,\n    use_claude: intent.use_claude || false,\n    route\n  }\n}];"
+      },
+      "id": "parse-intent",
+      "name": "Parsear intención",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "CLAUDE", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "claude"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "TAREA", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "tarea"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "NOTA", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "nota"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "CONTENIDO", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "contenido"
+            },
+            {
+              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "PROGRESO", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
+              "renameOutput": true, "outputKey": "progreso"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "router",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8080/tool/claude_chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"system\": \"Eres el asistente personal de Sebastian Sterling, DevSecOps Engineer en Expert Radiology (Puerto Rico). Tienes contexto de su home lab k3s (Sadida, Ocra, Sram, Xelor, Sacro, Aery), proyectos personales de software, y sistema de productividad. Eres directo y técnico. Responde en el idioma del usuario.\",\n  \"prompt\": \"={{ $('Parsear intención').first().json.raw_text }}\",\n  \"max_tokens\": 1024\n}"
+      },
+      "id": "hermes-claude",
+      "name": "Hermes → Claude (calidad máxima)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nreturn [{ json: { response_text: r.result || 'Sin respuesta.', source: 'Claude' } }];"
+      },
+      "id": "parse-claude",
+      "name": "Parse Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8080/tool/ollama_chat",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"qwen3.5:4b\",\n  \"temperature\": 0.7,\n  \"system\": \"Eres el asistente personal de Sebastian. Intención detectada: {{ $('Parsear intención').first().json.intent }}. Sé directo y conciso. Responde en el idioma del usuario.\",\n  \"prompt\": \"={{ $('Parsear intención').first().json.raw_text }}\"\n}"
+      },
+      "id": "hermes-ollama-chat",
+      "name": "Hermes → Ollama (chat/simple)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nreturn [{ json: { response_text: r.result || 'Sin respuesta.', source: 'Hermes/Ollama' } }];"
+      },
+      "id": "parse-ollama",
+      "name": "Parse Ollama",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Parsear intención').first().json;\nreturn [{ json: { response_text: `📋 [Agente Tareas — Fase 3]\\nDetecté: \"${d.raw_text}\"`, source: 'Agente-Tareas' } }];"
+      },
+      "id": "agente-tareas",
+      "name": "Agente Tareas [TODO Fase 3]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Parsear intención').first().json;\nreturn [{ json: { response_text: `📝 [Agente Obsidian — Fase 2]\\nDetecté: \"${d.raw_text}\"`, source: 'Agente-Obsidian' } }];"
+      },
+      "id": "agente-obsidian",
+      "name": "Agente Obsidian [TODO Fase 2]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Parsear intención').first().json;\nreturn [{ json: { response_text: `✍️ [Agente Contenido — Fase 4]\\nDetecté: \"${d.raw_text}\"`, source: 'Agente-Contenido' } }];"
+      },
+      "id": "agente-contenido",
+      "name": "Agente Contenido [TODO Fase 4]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 620]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $('Parsear intención').first().json;\nreturn [{ json: { response_text: `📊 [Agente Progreso — Fase 5]\\nDetecté: \"${d.raw_text}\"`, source: 'Agente-Progreso' } }];"
+      },
+      "id": "agente-progreso",
+      "name": "Agente Progreso [TODO Fase 5]",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 740]
+    },
+    {
+      "parameters": {
+        "jsCode": "const all = $input.all();\nconst r = all.find(i => i.json.response_text) || all[0];\nconst d = $('Parsear intención').first().json;\nconst src = r.json.source || 'Sistema';\nconst icon = src === 'Claude' ? '🤖' : src.includes('Ollama') ? '⚡' : '🔧';\nreturn [{\n  json: {\n    chat_id: d.chat_id,\n    response_text: r.json.response_text,\n    footer: `\\n\\n${icon} ${src} · ${d.intent} (${Math.round((d.confidence||0)*100)}%)`\n  }\n}];"
+      },
+      "id": "merge",
+      "name": "Merge respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 420]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.response_text + $json.footer }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "telegram-send",
+      "name": "Telegram — Enviar",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 420],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CRED", "name": "Telegram Bot" }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram — Recibir mensaje": { "main": [[{ "node": "Extraer mensaje", "type": "main", "index": 0 }]] },
+    "Extraer mensaje": { "main": [[{ "node": "Hermes — Clasificar intención", "type": "main", "index": 0 }]] },
+    "Hermes — Clasificar intención": { "main": [[{ "node": "Parsear intención", "type": "main", "index": 0 }]] },
+    "Parsear intención": { "main": [[{ "node": "Router", "type": "main", "index": 0 }]] },
+    "Router": {
+      "main": [
+        [{ "node": "Hermes → Claude (calidad máxima)", "type": "main", "index": 0 }],
+        [{ "node": "Agente Tareas [TODO Fase 3]", "type": "main", "index": 0 }],
+        [{ "node": "Agente Obsidian [TODO Fase 2]", "type": "main", "index": 0 }],
+        [{ "node": "Agente Contenido [TODO Fase 4]", "type": "main", "index": 0 }],
+        [{ "node": "Agente Progreso [TODO Fase 5]", "type": "main", "index": 0 }],
+        [{ "node": "Hermes → Ollama (chat/simple)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Hermes → Claude (calidad máxima)": { "main": [[{ "node": "Parse Claude", "type": "main", "index": 0 }]] },
+    "Parse Claude": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Hermes → Ollama (chat/simple)": { "main": [[{ "node": "Parse Ollama", "type": "main", "index": 0 }]] },
+    "Parse Ollama": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Agente Tareas [TODO Fase 3]": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Agente Obsidian [TODO Fase 2]": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Agente Contenido [TODO Fase 4]": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Agente Progreso [TODO Fase 5]": { "main": [[{ "node": "Merge respuesta", "type": "main", "index": 0 }]] },
+    "Merge respuesta": { "main": [[{ "node": "Telegram — Enviar", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["cerebro", "hermes", "v2"]
+}
