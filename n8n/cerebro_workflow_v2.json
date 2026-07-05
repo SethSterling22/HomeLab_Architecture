@@ -3,16 +3,24 @@
   "nodes": [
     {
       "parameters": {
-        "updates": ["message"],
+        "updates": [
+          "message"
+        ],
         "additionalFields": {}
       },
       "id": "telegram-trigger",
       "name": "Telegram — Receive message",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.1,
-      "position": [240, 300],
+      "position": [
+        240,
+        300
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CRED", "name": "Telegram Bot" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CRED",
+          "name": "Telegram Bot"
+        }
       }
     },
     {
@@ -23,7 +31,10 @@
       "name": "Extract message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -31,7 +42,12 @@
         "url": "http://localhost:8080/tool/ollama_chat",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
@@ -41,41 +57,146 @@
       "name": "Hermes — Classify intent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst prev = $('Extract message').first().json;\n\nlet intent;\ntry {\n  const raw = resp.result || '{}';\n  const cleaned = raw.replace(/```json\\n?/g,'').replace(/```/g,'').trim();\n  intent = JSON.parse(cleaned);\n} catch(e) {\n  intent = { intent: 'CHAT', confidence: 0.5, use_claude: false };\n}\n\nconst route = intent.use_claude ? 'CLAUDE' : intent.intent;\n\nreturn [{\n  json: {\n    ...prev,\n    intent: intent.intent || 'CHAT',\n    confidence: intent.confidence || 0.5,\n    use_claude: intent.use_claude || false,\n    route\n  }\n}];"
+        "jsCode": "const resp = $input.first().json;\nconst prev = $('Extract message').first().json;\n\nlet intent;\ntry {\n  let raw = resp.result || '{}';\n  // qwen3 is a reasoning model: drop any <think>...</think> block first.\n  raw = raw.replace(/<think>[\\s\\S]*?<\\/think>/g, '');\n  // Strip markdown fences and grab the first JSON object.\n  const cleaned = raw.replace(/```json\\n?/g, '').replace(/```/g, '').trim();\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  intent = JSON.parse(match ? match[0] : cleaned);\n} catch (e) {\n  intent = { intent: 'CHAT', confidence: 0.5, use_claude: false };\n}\n\nconst KNOWN = ['TASK','NOTE','CONTENT','PROGRESS','CHAT','SIMPLE_QUERY'];\nlet route = intent.use_claude ? 'CLAUDE' : (intent.intent || 'CHAT');\n// Anything the router does not explicitly handle becomes a chat reply.\nif (route !== 'CLAUDE' && !KNOWN.includes(route)) route = 'CHAT';\n\nreturn [{\n  json: {\n    ...prev,\n    intent: intent.intent || 'CHAT',\n    confidence: intent.confidence || 0.5,\n    use_claude: intent.use_claude || false,\n    route\n  }\n}];"
       },
       "id": "parse-intent",
       "name": "Parse intent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        900,
+        300
+      ]
     },
     {
       "parameters": {
         "rules": {
           "values": [
             {
-              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "CLAUDE", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
-              "renameOutput": true, "outputKey": "claude"
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "CLAUDE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "claude"
             },
             {
-              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "TASK", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
-              "renameOutput": true, "outputKey": "task"
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "TASK",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "task"
             },
             {
-              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "NOTE", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
-              "renameOutput": true, "outputKey": "note"
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "NOTE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "note"
             },
             {
-              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "CONTENT", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
-              "renameOutput": true, "outputKey": "content"
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "CONTENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "content"
             },
             {
-              "conditions": { "conditions": [{ "leftValue": "={{ $json.route }}", "rightValue": "PROGRESS", "operator": { "type": "string", "operation": "equals" } }], "combinator": "and" },
-              "renameOutput": true, "outputKey": "progress"
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "PROGRESS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "progress"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "CHAT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "chat"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "SIMPLE_QUERY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "simple"
             }
           ]
         },
@@ -85,7 +206,10 @@
       "name": "Router",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [1120, 300]
+      "position": [
+        1120,
+        300
+      ]
     },
     {
       "parameters": {
@@ -93,7 +217,12 @@
         "url": "http://localhost:8080/tool/claude_chat",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
@@ -103,7 +232,10 @@
       "name": "Hermes → Claude (top quality)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 100]
+      "position": [
+        1340,
+        100
+      ]
     },
     {
       "parameters": {
@@ -113,7 +245,10 @@
       "name": "Parse Claude",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 100]
+      "position": [
+        1560,
+        100
+      ]
     },
     {
       "parameters": {
@@ -121,7 +256,12 @@
         "url": "http://localhost:8080/tool/ollama_chat",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
@@ -131,7 +271,10 @@
       "name": "Hermes → Ollama (chat/simple)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 500]
+      "position": [
+        1340,
+        500
+      ]
     },
     {
       "parameters": {
@@ -141,7 +284,10 @@
       "name": "Parse Ollama",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 500]
+      "position": [
+        1560,
+        500
+      ]
     },
     {
       "parameters": {
@@ -151,7 +297,10 @@
       "name": "Task Agent [TODO Phase 3]",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 220]
+      "position": [
+        1340,
+        220
+      ]
     },
     {
       "parameters": {
@@ -161,7 +310,10 @@
       "name": "Obsidian Agent [TODO Phase 2]",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 340]
+      "position": [
+        1340,
+        340
+      ]
     },
     {
       "parameters": {
@@ -171,7 +323,10 @@
       "name": "Content Agent [TODO Phase 4]",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 620]
+      "position": [
+        1340,
+        620
+      ]
     },
     {
       "parameters": {
@@ -181,7 +336,10 @@
       "name": "Progress Agent [TODO Phase 5]",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 740]
+      "position": [
+        1340,
+        740
+      ]
     },
     {
       "parameters": {
@@ -191,7 +349,10 @@
       "name": "Merge response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1780, 420]
+      "position": [
+        1780,
+        420
+      ]
     },
     {
       "parameters": {
@@ -203,37 +364,229 @@
       "name": "Telegram — Send",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2000, 420],
+      "position": [
+        2000,
+        420
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CRED", "name": "Telegram Bot" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CRED",
+          "name": "Telegram Bot"
+        }
       }
     }
   ],
   "connections": {
-    "Telegram — Receive message": { "main": [[{ "node": "Extract message", "type": "main", "index": 0 }]] },
-    "Extract message": { "main": [[{ "node": "Hermes — Classify intent", "type": "main", "index": 0 }]] },
-    "Hermes — Classify intent": { "main": [[{ "node": "Parse intent", "type": "main", "index": 0 }]] },
-    "Parse intent": { "main": [[{ "node": "Router", "type": "main", "index": 0 }]] },
-    "Router": {
+    "Telegram — Receive message": {
       "main": [
-        [{ "node": "Hermes → Claude (top quality)", "type": "main", "index": 0 }],
-        [{ "node": "Task Agent [TODO Phase 3]", "type": "main", "index": 0 }],
-        [{ "node": "Obsidian Agent [TODO Phase 2]", "type": "main", "index": 0 }],
-        [{ "node": "Content Agent [TODO Phase 4]", "type": "main", "index": 0 }],
-        [{ "node": "Progress Agent [TODO Phase 5]", "type": "main", "index": 0 }],
-        [{ "node": "Hermes → Ollama (chat/simple)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Extract message",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Hermes → Claude (top quality)": { "main": [[{ "node": "Parse Claude", "type": "main", "index": 0 }]] },
-    "Parse Claude": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Hermes → Ollama (chat/simple)": { "main": [[{ "node": "Parse Ollama", "type": "main", "index": 0 }]] },
-    "Parse Ollama": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Task Agent [TODO Phase 3]": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Obsidian Agent [TODO Phase 2]": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Content Agent [TODO Phase 4]": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Progress Agent [TODO Phase 5]": { "main": [[{ "node": "Merge response", "type": "main", "index": 0 }]] },
-    "Merge response": { "main": [[{ "node": "Telegram — Send", "type": "main", "index": 0 }]] }
+    "Extract message": {
+      "main": [
+        [
+          {
+            "node": "Hermes — Classify intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes — Classify intent": {
+      "main": [
+        [
+          {
+            "node": "Parse intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse intent": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Hermes → Claude (top quality)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Task Agent [TODO Phase 3]",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obsidian Agent [TODO Phase 2]",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Content Agent [TODO Phase 4]",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Progress Agent [TODO Phase 5]",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hermes → Ollama (chat/simple)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hermes → Ollama (chat/simple)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hermes → Ollama (chat/simple)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes → Claude (top quality)": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes → Ollama (chat/simple)": {
+      "main": [
+        [
+          {
+            "node": "Parse Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ollama": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task Agent [TODO Phase 3]": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obsidian Agent [TODO Phase 2]": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Agent [TODO Phase 4]": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Progress Agent [TODO Phase 5]": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge response": {
+      "main": [
+        [
+          {
+            "node": "Telegram — Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
-  "tags": ["cerebro", "hermes", "v2"]
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    "cerebro",
+    "hermes",
+    "v2"
+  ]
 }
