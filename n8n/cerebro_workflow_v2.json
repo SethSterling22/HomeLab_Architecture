@@ -14,7 +14,7 @@
       "typeVersion": 1.1,
       "position": [
         240,
-        300
+        400
       ],
       "credentials": {
         "telegramApi": {
@@ -32,14 +32,14 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        460,
-        300
+        440,
+        400
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8080/tool/ollama_chat",
+        "url": "http://127.0.0.1:8080/tool/ollama_chat",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -51,28 +51,28 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"qwen3:1.7b\",\n  \"temperature\": 0.1,\n  \"system\": \"You are an intent classifier. Respond ONLY with JSON, no markdown.\\n\\nCategories:\\n- TASK: create/query tasks or projects\\n- NOTE: create or query notes in Obsidian\\n- CONTENT: draft or publish posts\\n- PROGRESS: log metrics or progress\\n- TECHNICAL_QUERY: complex technical questions\\n- SIMPLE_QUERY: general questions\\n- CHAT: casual conversation\\n\\nFormat: {\\\"intent\\\": \\\"CATEGORY\\\", \\\"confidence\\\": 0.0-1.0, \\\"use_claude\\\": true|false}\\nuse_claude=true only for TECHNICAL_QUERY or confidence<0.6\",\n  \"prompt\": \"={{ $json.raw_text }}\"\n}"
+        "jsonBody": "={\n  \"model\": \"qwen3:1.7b\",\n  \"temperature\": 0.1,\n  \"system\": \"You are an intent classifier. Respond ONLY with compact JSON, no markdown, no explanations. Categories: TASK = create/update/query a task, reminder, to-do or calendar event, including where to store it (Notion, Trello, etc.). Examples: 'add this to my calendar', 'guarda el task en Notion', 'recuerdame llamar al banco'. NOTE = create or query a note. Examples: 'quiero tomar nota de esto', 'apunta que...', 'save this as a note'. CONTENT = draft or publish a post or article. PROGRESS = log metrics or progress. TECHNICAL_QUERY = complex technical/engineering questions that need deep reasoning. SIMPLE_QUERY = short general questions. CHAT = greetings and casual conversation. Examples: 'hola', 'how are you'. Rules: use_claude=true ONLY for TECHNICAL_QUERY. For CHAT and SIMPLE_QUERY always use_claude=false. Output format: {\\\"intent\\\":\\\"CATEGORY\\\",\\\"confidence\\\":0.0-1.0,\\\"use_claude\\\":true|false}\",\n  \"prompt\": \"{{ $json.raw_text }}\"\n}"
       },
       "id": "hermes-classify",
       "name": "Hermes — Classify intent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        680,
-        300
+        1040,
+        200
       ]
     },
     {
       "parameters": {
-        "jsCode": "const resp = $input.first().json;\nconst prev = $('Extract message').first().json;\n\nlet intent;\ntry {\n  let raw = resp.result || '{}';\n  // qwen3 is a reasoning model: drop any <think>...</think> block first.\n  raw = raw.replace(/<think>[\\s\\S]*?<\\/think>/g, '');\n  // Strip markdown fences and grab the first JSON object.\n  const cleaned = raw.replace(/```json\\n?/g, '').replace(/```/g, '').trim();\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  intent = JSON.parse(match ? match[0] : cleaned);\n} catch (e) {\n  intent = { intent: 'CHAT', confidence: 0.5, use_claude: false };\n}\n\nconst KNOWN = ['TASK','NOTE','CONTENT','PROGRESS','CHAT','SIMPLE_QUERY'];\nlet route = intent.use_claude ? 'CLAUDE' : (intent.intent || 'CHAT');\n// Anything the router does not explicitly handle becomes a chat reply.\nif (route !== 'CLAUDE' && !KNOWN.includes(route)) route = 'CHAT';\n\nreturn [{\n  json: {\n    ...prev,\n    intent: intent.intent || 'CHAT',\n    confidence: intent.confidence || 0.5,\n    use_claude: intent.use_claude || false,\n    route\n  }\n}];"
+        "jsCode": "const fast = $('Fast route').first().json;\nlet intent, confidence, use_claude, route;\n\nif (fast._decided) {\n  route = fast.route; intent = fast.intent; confidence = fast.confidence; use_claude = fast.use_claude;\n} else {\n  let parsed;\n  try {\n    let raw = $input.first().json.result || '{}';\n    raw = raw.replace(/<think>[\\s\\S]*?<\\/think>/g, '');   // qwen3 reasoning block\n    const cleaned = raw.replace(/```json\\n?/g, '').replace(/```/g, '').trim();\n    const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n    parsed = JSON.parse(match ? match[0] : cleaned);\n  } catch (e) {\n    parsed = { intent: 'CHAT', confidence: 0.5, use_claude: false };\n  }\n  intent = parsed.intent || 'CHAT';\n  confidence = parsed.confidence ?? 0.5;\n  use_claude = !!parsed.use_claude;\n  // Casual conversation must always stay on local Qwen.\n  if (intent === 'CHAT' || intent === 'SIMPLE_QUERY') use_claude = false;\n  const KNOWN = ['TASK','NOTE','CONTENT','PROGRESS','CHAT','SIMPLE_QUERY'];\n  route = use_claude ? 'CLAUDE' : intent;\n  if (route !== 'CLAUDE' && !KNOWN.includes(route)) route = 'CHAT';\n}\n\nreturn [{ json: {\n  raw_text: fast.raw_text,\n  chat_id: fast.chat_id,\n  username: fast.username,\n  timestamp: fast.timestamp,\n  intent, confidence, use_claude, route\n} }];"
       },
       "id": "parse-intent",
       "name": "Parse intent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        900,
-        300
+        1240,
+        400
       ]
     },
     {
@@ -207,14 +207,14 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1120,
-        300
+        1460,
+        400
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8080/tool/claude_chat",
+        "url": "http://127.0.0.1:8080/tool/claude_chat",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -233,8 +233,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1340,
-        100
+        1700,
+        60
       ]
     },
     {
@@ -246,14 +246,14 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
-        100
+        1920,
+        60
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8080/tool/ollama_chat",
+        "url": "http://127.0.0.1:8080/tool/ollama_chat",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -272,8 +272,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1340,
-        500
+        1700,
+        780
       ]
     },
     {
@@ -285,8 +285,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
-        500
+        1920,
+        780
       ]
     },
     {
@@ -298,8 +298,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
-        220
+        1700,
+        200
       ]
     },
     {
@@ -311,7 +311,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
+        1700,
         340
       ]
     },
@@ -324,8 +324,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
-        620
+        1700,
+        480
       ]
     },
     {
@@ -337,8 +337,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
-        740
+        1700,
+        620
       ]
     },
     {
@@ -350,8 +350,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1780,
-        420
+        2160,
+        400
       ]
     },
     {
@@ -365,8 +365,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2000,
-        420
+        2380,
+        400
       ],
       "credentials": {
         "telegramApi": {
@@ -374,6 +374,53 @@
           "name": "Telegram Bot"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nlet text = (d.raw_text || '').trim();\nconst lower = text.toLowerCase();\n\n// Slash commands go straight to an agent (skip the qwen classifier).\nconst SLASH = { '/claude':'CLAUDE', '/task':'TASK', '/note':'NOTE', '/content':'CONTENT', '/progress':'PROGRESS', '/qwen':'CHAT', '/chat':'CHAT' };\nlet decided = false, route = null;\nconst m = lower.match(/^(\\/[a-z]+)\\b/);\nif (m && SLASH[m[1]]) {\n  route = SLASH[m[1]];\n  decided = true;\n  text = text.slice(m[1].length).trim();   // strip the command token\n}\n\n// Very large prompts go straight to Claude (skip classification).\nconst MAX_LOCAL_CHARS = 1500;\nif (!decided && text.length > MAX_LOCAL_CHARS) { route = 'CLAUDE'; decided = true; }\n\nconst intent = route === 'CLAUDE' ? 'TECHNICAL_QUERY' : (route || 'CHAT');\nreturn [{\n  json: {\n    raw_text: text,\n    chat_id: d.chat_id,\n    username: d.username,\n    timestamp: d.timestamp,\n    _decided: decided,\n    route: decided ? route : null,\n    intent: decided ? intent : null,\n    confidence: decided ? 1 : null,\n    use_claude: decided ? (route === 'CLAUDE') : false\n  }\n}];"
+      },
+      "id": "fast-route",
+      "name": "Fast route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "decided-cond",
+              "leftValue": "={{ $json._decided }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "needs-classify",
+      "name": "Needs classification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        400
+      ]
     }
   ],
   "connections": {
@@ -382,17 +429,6 @@
         [
           {
             "node": "Extract message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract message": {
-      "main": [
-        [
-          {
-            "node": "Hermes — Classify intent",
             "type": "main",
             "index": 0
           }
@@ -574,6 +610,46 @@
         [
           {
             "node": "Telegram — Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract message": {
+      "main": [
+        [
+          {
+            "node": "Fast route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fast route": {
+      "main": [
+        [
+          {
+            "node": "Needs classification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs classification?": {
+      "main": [
+        [
+          {
+            "node": "Parse intent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hermes — Classify intent",
             "type": "main",
             "index": 0
           }
