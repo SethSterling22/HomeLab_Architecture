@@ -291,32 +291,6 @@
     },
     {
       "parameters": {
-        "jsCode": "const d = $('Parse intent').first().json;\nreturn [{ json: { response_text: `📋 [Task Agent — Phase 3]\\nDetected: \"${d.raw_text}\"`, source: 'Task-Agent' } }];"
-      },
-      "id": "agent-task",
-      "name": "Task Agent [TODO Phase 3]",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1700,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const d = $('Parse intent').first().json;\nreturn [{ json: { response_text: `📝 [Obsidian Agent — Phase 2]\\nDetected: \"${d.raw_text}\"`, source: 'Obsidian-Agent' } }];"
-      },
-      "id": "agent-obsidian",
-      "name": "Obsidian Agent [TODO Phase 2]",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1700,
-        340
-      ]
-    },
-    {
-      "parameters": {
         "jsCode": "const d = $('Parse intent').first().json;\nreturn [{ json: { response_text: `✍️ [Content Agent — Phase 4]\\nDetected: \"${d.raw_text}\"`, source: 'Content-Agent' } }];"
       },
       "id": "agent-content",
@@ -421,6 +395,118 @@
         840,
         400
       ]
+    },
+    {
+      "id": "build-note",
+      "name": "Build note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        360
+      ],
+      "parameters": {
+        "jsCode": "// Turn the incoming message into a note payload for Hermes note_save.\nconst d = $('Parse intent').first().json;\nconst text = (d.raw_text || '').trim();\nconst nl = text.indexOf('\\n');\nconst title = (nl === -1 ? text : text.slice(0, nl)).slice(0, 120) || 'Quick note';\nconst body = { title, content: text, folder: 'Inbox', tags: ['cerebro'], sync: true };\nreturn [{ json: { requestBody: JSON.stringify(body) } }];"
+      }
+    },
+    {
+      "id": "hermes-note-save",
+      "name": "Hermes → Save note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        360
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8080/tool/note_save",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}"
+      }
+    },
+    {
+      "id": "parse-note",
+      "name": "Parse note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconst text = r.ok ? `📝 ${r.result}` : `⚠️ Note not saved: ${r.error || 'unknown error'}`;\nreturn [{ json: { response_text: text, source: 'Brain' } }];"
+      }
+    },
+    {
+      "id": "build-task",
+      "name": "Build task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// Build a Linear GraphQL mutation from the incoming message.\n// First line -> issue title, the rest -> description.\nconst d = $('Parse intent').first().json;\nconst text = (d.raw_text || '').trim();\nconst nl = text.indexOf('\\n');\nconst title = (nl === -1 ? text : text.slice(0, nl)).slice(0, 200) || 'Untitled task';\nconst description = nl === -1 ? '' : text.slice(nl + 1).trim();\n// TODO: set your Linear team id (see setup instructions).\nconst teamId = 'REPLACE_WITH_LINEAR_TEAM_ID';\nconst body = {\n  query: 'mutation CreateIssue($teamId: String!, $title: String!, $description: String) { issueCreate(input: { teamId: $teamId, title: $title, description: $description }) { success issue { identifier title url } } }',\n  variables: { teamId, title, description },\n};\nreturn [{ json: { requestBody: JSON.stringify(body) } }];"
+      }
+    },
+    {
+      "id": "linear-create",
+      "name": "Linear — Create issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Linear API Key"
+        }
+      }
+    },
+    {
+      "id": "parse-task",
+      "name": "Parse task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        160
+      ],
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconst res = r && r.data && r.data.issueCreate;\nconst issue = res && res.issue;\nconst text = (res && res.success && issue)\n  ? `✅ Task created in Linear: ${issue.identifier} — ${issue.title}\\n${issue.url}`\n  : `⚠️ Could not create the Linear task.\\n${JSON.stringify((r && r.errors) || r).slice(0, 400)}`;\nreturn [{ json: { response_text: text, source: 'Linear' } }];"
+      }
     }
   ],
   "connections": {
@@ -468,14 +554,14 @@
         ],
         [
           {
-            "node": "Task Agent [TODO Phase 3]",
+            "node": "Build task",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Obsidian Agent [TODO Phase 2]",
+            "node": "Build note",
             "type": "main",
             "index": 0
           }
@@ -561,28 +647,6 @@
         ]
       ]
     },
-    "Task Agent [TODO Phase 3]": {
-      "main": [
-        [
-          {
-            "node": "Merge response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Obsidian Agent [TODO Phase 2]": {
-      "main": [
-        [
-          {
-            "node": "Merge response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Content Agent [TODO Phase 4]": {
       "main": [
         [
@@ -650,6 +714,72 @@
         [
           {
             "node": "Hermes — Classify intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build task": {
+      "main": [
+        [
+          {
+            "node": "Linear — Create issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Linear — Create issue": {
+      "main": [
+        [
+          {
+            "node": "Parse task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse task": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build note": {
+      "main": [
+        [
+          {
+            "node": "Hermes → Save note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hermes → Save note": {
+      "main": [
+        [
+          {
+            "node": "Parse note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse note": {
+      "main": [
+        [
+          {
+            "node": "Merge response",
             "type": "main",
             "index": 0
           }

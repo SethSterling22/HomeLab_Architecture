@@ -10,6 +10,7 @@
  *   fs_write     — write a file
  *   fs_delete    — delete a file/dir (only when HERMES_FS_ALLOW_DELETE=true)
  *   shell_exec   — run a command (allowlist, or any command in unrestricted mode)
+ *   note_save    — save a Markdown note into the git-backed "second brain" and push it
  *   ollama_chat  — call Ollama via API
  *   claude_chat  — call the Claude API (falls back to Ollama/Qwen when unavailable)
  *
@@ -62,6 +63,14 @@ const FS_ALLOW_DELETE         = bool(process.env.HERMES_FS_ALLOW_DELETE);
 const DISABLE_CLAUDE_FALLBACK = bool(process.env.HERMES_DISABLE_CLAUDE_FALLBACK);
 const CLAUDE_FALLBACK_MODEL   = process.env.HERMES_CLAUDE_FALLBACK_MODEL || "qwen3.5:4b";
 
+// ── Second brain (git-backed vault) ──────────────────────────────────────────
+const BRAIN_ROOT       = process.env.HERMES_BRAIN_ROOT || path.join(WORKSPACE_ROOT, "brain");
+const BRAIN_GIT_SYNC   = process.env.HERMES_BRAIN_GIT_SYNC === undefined
+  ? true : bool(process.env.HERMES_BRAIN_GIT_SYNC);
+const BRAIN_GIT_REMOTE = process.env.HERMES_BRAIN_GIT_REMOTE || "origin";
+const BRAIN_GIT_BRANCH = process.env.HERMES_BRAIN_GIT_BRANCH || "main";
+const BRAIN_GIT_SSH_KEY = process.env.HERMES_BRAIN_GIT_SSH_KEY || "";
+
 // Base commands allowed in shell_exec — SSH set and extras are added by toggles.
 const BASE_ALLOWLIST = [
   "ls", "find", "cat", "head", "tail", "grep", "wc",
@@ -109,6 +118,72 @@ async function ollamaChat({ prompt, model, system, temperature }) {
   if (!resp.ok) throw new Error(`Ollama error ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
   return truncate(data.message?.content || "(no response)");
+}
+
+// Turn an arbitrary title into a filesystem-safe slug for the note filename.
+function slugify(s) {
+  return (s || "note")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 60) || "note";
+}
+
+// Run a git command inside the brain repo (args as an array — spaces are safe).
+function brainGit(args) {
+  const env = { ...process.env, HOME: WORKSPACE_ROOT };
+  if (BRAIN_GIT_SSH_KEY) {
+    env.GIT_SSH_COMMAND = `ssh -i ${BRAIN_GIT_SSH_KEY} -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes`;
+  }
+  return execFileAsync("git", [
+    "-C", BRAIN_ROOT,
+    "-c", "user.name=Cerebro",
+    "-c", "user.email=cerebro@homelab.local",
+    ...args,
+  ], { timeout: 30000, maxBuffer: 1024 * 1024, env });
+}
+
+// Shared note_save implementation (used by the CallTool handler).
+async function saveNote({ title, content, folder, tags, sync }) {
+  const now       = new Date();
+  const date      = now.toISOString().slice(0, 10);
+  const noteTitle = (title || "Quick note").trim();
+  const subdir    = (folder || "Inbox").replace(/[^A-Za-z0-9/_-]/g, "");
+  const dir       = path.join(BRAIN_ROOT, subdir);
+  const filename  = `${date}-${slugify(noteTitle)}.md`;
+  const outPath   = path.join(dir, filename);
+
+  const tagList = Array.isArray(tags)
+    ? tags
+    : (tags ? String(tags).split(",").map(t => t.trim()).filter(Boolean) : []);
+
+  const frontmatter = [
+    "---",
+    `title: ${JSON.stringify(noteTitle)}`,
+    `created: ${now.toISOString()}`,
+    `tags: [${tagList.map(t => JSON.stringify(t)).join(", ")}]`,
+    "source: cerebro",
+    "---",
+    "",
+  ].join("\n");
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(outPath, frontmatter + (content || noteTitle) + "\n", "utf8");
+
+  const doSync = sync === undefined ? BRAIN_GIT_SYNC : bool(String(sync));
+  let synced = "local-only";
+  if (doSync) {
+    try {
+      await brainGit(["add", "--", outPath]);
+      await brainGit(["commit", "-m", `note: ${noteTitle}`]);
+      await brainGit(["push", BRAIN_GIT_REMOTE, BRAIN_GIT_BRANCH]);
+      synced = `pushed to ${BRAIN_GIT_REMOTE}/${BRAIN_GIT_BRANCH}`;
+    } catch (err) {
+      synced = `saved locally, git sync failed: ${err.message}`;
+    }
+  }
+  return `Note saved: ${subdir}/${filename} (${synced})`;
 }
 
 // ── Initialize output dir ───────────────────────────────────────────────────
@@ -172,6 +247,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         properties: {
           command: { type: "string", description: "Command to run (e.g. 'ls -la /workspace')" },
           timeout: { type: "number", description: "Timeout in ms (default 10000)" },
+        },
+      },
+    },
+    {
+      name: "note_save",
+      description: "Save a Markdown note into the git-backed second brain (Obsidian vault). Commits and pushes to GitHub when sync is enabled.",
+      inputSchema: {
+        type: "object",
+        required: ["content"],
+        properties: {
+          title:   { type: "string", description: "Note title (used for the filename and frontmatter)" },
+          content: { type: "string", description: "Markdown body of the note" },
+          folder:  { type: "string", description: "Subfolder in the vault (default: Inbox)" },
+          tags:    { type: "array", items: { type: "string" }, description: "Optional tags" },
+          sync:    { type: "boolean", description: "Commit + push to git (default: HERMES_BRAIN_GIT_SYNC)" },
         },
       },
     },
@@ -318,6 +408,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: "text", text: out || "(no output)" }],
       };
+    }
+
+    // ── note_save ────────────────────────────────────────────────────────────
+    if (name === "note_save") {
+      const text = await saveNote({
+        title:   args.title,
+        content: args.content,
+        folder:  args.folder,
+        tags:    args.tags,
+        sync:    args.sync,
+      });
+      return { content: [{ type: "text", text }] };
     }
 
     // ── ollama_chat ──────────────────────────────────────────────────────────
