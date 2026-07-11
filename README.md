@@ -83,17 +83,13 @@ Mounted read-write via `/etc/fstab` with the `_netdev` flag; auto-mounts on rebo
 
 ## AI Stack
 
-The AI stack is intentionally split between two nodes, and the primary deployment is Docker Compose (not Kubernetes):
+The AI layer is split into two concerns. **This repository owns the infrastructure side** — the GPU host that serves the models and the always-on node that hosts the automation stack. **The automation stack itself (n8n, Hermes, the agents) has moved to `Productivity_Tools/`** and is intended to become a separate repository; see `Productivity_Tools/README.md` and `Productivity_Tools/HANDOFF.md`.
 
-**Ollama on Sadida (local, not a pod).** Sadida is the only node with a discrete GPU (RTX 3050), so Ollama runs as a local host service on port `11434`. Running it directly on the host avoids an unnecessary orchestration layer and gives the models direct GPU access. Two models are installed (see `scripts/ai/pull-models.sh`): `qwen3:1.7b` as the intent classifier and `qwen3.5:4b` as the main conversational agent.
+**Ollama on Sadida (local, not a pod).** Sadida is the only node with a discrete GPU (RTX 3050), so Ollama runs as a local host service on port `11434`. Running it directly on the host avoids an unnecessary orchestration layer and gives the models direct GPU access. Two models are installed (see `scripts/ai/pull-models.sh`): `qwen3:1.7b` as the intent classifier and `qwen3.5:4b` as the main conversational agent. **Ollama and its provisioning stay in this repo** — they are infrastructure the automation layer consumes over Tailscale.
 
-**Ocra as the 24/7 brain.** Ocra runs the functional stack via Docker Compose (`n8n/docker-compose.yaml`): n8n (workflow orchestrator), the Hermes gateway, PostgreSQL (n8n's database), and a Tailscale sidecar. n8n and Hermes share the sidecar's network namespace, so n8n reaches Hermes at `http://localhost:8080`. All external calls (Claude, Telegram) originate here.
+**Ocra as the 24/7 host.** Ocra runs the automation stack via Docker Compose (`Productivity_Tools/n8n/docker-compose.yaml`): n8n, the Hermes gateway, PostgreSQL, and a Tailscale sidecar. From an infrastructure standpoint, this repo only guarantees that Ocra is powered, on the Tailscale network, and running Docker; the stack's internals are documented in `Productivity_Tools/`.
 
-**Hermes as the router.** Hermes is a small HTTP gateway (`hermes-agent/mcp-server/gateway.js`) exposing tools over `POST /tool/:name`, plus `GET /health` and `GET /tools`. It decides between the local Ollama model and the Claude API depending on intent, and also exposes sandboxed filesystem and shell tools. It reaches Ollama on Sadida over Tailscale (`sadida.stegosaurus-panga.ts.net:11434`).
-
-**Telegram as the interface.** A user sends a Telegram message → n8n receives it → n8n asks Hermes to classify intent → based on intent, n8n routes to Claude (high-quality/technical) or to Ollama (chat/simple) through Hermes → the response is sent back over Telegram.
-
-Kubernetes is an **optional / future** route for Hermes. Its manifest lives in `hermes-agent/k8s/hermes-stack.yaml` and, like the Compose setup, treats Ollama as an external service on Sadida (via an `ExternalName` Service). See `hermes-agent/README.md` for details.
+**In-cluster access to Ollama.** For workloads that run inside k3s, `k3s/manifests/ai/ollama.yaml` exposes Ollama through an `ExternalName` Service (`ollama.ai.svc.cluster.local:11434` → Sadida over Tailscale). `k3s/manifests/ai/apps.yaml` carries an optional chat web UI (OpenClaw) that talks to it.
 
 ---
 
@@ -189,7 +185,7 @@ graph LR
 
     subgraph ai["AI Namespace"]
         OC["OpenClaw\n(optional web UI)"]
-        HM["Hermes\n(hermes-agent/k8s)"]
+        HM["Hermes\n(Productivity_Tools/hermes-agent/k8s)"]
         OL["ollama Service\n(ExternalName → Sadida)"]
     end
 
@@ -292,17 +288,17 @@ kubectl get nodes -o wide
 ### 3. Launch the AI brain on Ocra (Docker Compose)
 
 ```bash
-cd n8n
+cd Productivity_Tools/n8n
 cp .env.example .env      # fill in TS_AUTHKEY, ANTHROPIC_API_KEY, POSTGRES_PASSWORD, N8N_ENCRYPTION_KEY
 sudo docker compose up -d --build   # --build builds the Hermes image from ../hermes-agent/mcp-server
 
 # Verify
 sudo docker compose ps
-sudo docker exec n8n_core wget -qO- http://localhost:8080/health   # Hermes responds
+sudo docker exec n8n_core wget -qO- http://127.0.0.1:8080/health   # Hermes responds
 curl -s http://sadida.stegosaurus-panga.ts.net:11434/api/tags      # Ollama reachable
 ```
 
-Then open the n8n UI at `https://ocra.stegosaurus-panga.ts.net/`, configure the Telegram credential (the bot token lives in n8n, not in `.env`), import `n8n/cerebro_workflow_v2.json`, and activate the workflow.
+Then open the n8n UI at `https://ocra.stegosaurus-panga.ts.net/`, configure the Telegram credential (the bot token lives in n8n, not in `.env`), import `Productivity_Tools/n8n/cerebro_workflow_v2.json`, and activate the workflow. The automation stack's own docs live in `Productivity_Tools/` (README, HANDOFF, LAUNCH).
 
 ---
 
@@ -320,7 +316,7 @@ Then open the n8n UI at `https://ocra.stegosaurus-panga.ts.net/`, configure the 
 ### Manage the AI brain on Ocra
 
 ```bash
-cd n8n
+cd Productivity_Tools/n8n
 sudo docker compose ps                 # container status
 sudo docker compose logs -f n8n        # follow n8n logs
 sudo docker compose logs -f hermes-gateway
@@ -370,7 +366,7 @@ mount -a
 | Traefik | kube-system | 80 / 443 | Ingress controller |
 | OpenClaw | ai | /openclaw | Optional chat web UI |
 | ollama (ExternalName) | ai | :11434 (internal) | Points to Ollama on Sadida |
-| Hermes | ai | internal | Optional k8s deployment (`hermes-agent/k8s`) |
+| Hermes | ai | internal | Optional k8s deployment (`Productivity_Tools/hermes-agent/k8s`) |
 | Prometheus | monitoring | /prometheus | Cluster metrics |
 | Grafana | monitoring | /grafana | Dashboards |
 | Loki | monitoring | internal | Log aggregation |
@@ -395,21 +391,18 @@ homelab/
 │   │   └── k3s.yml                  ← Cluster installation
 │   └── roles/
 │       └── common/                  ← Base packages, SSH hardening
-├── n8n/                             ← PRIMARY AI stack (Docker Compose on Ocra)
-│   ├── docker-compose.yaml          ← n8n + Hermes + postgres + tailscale
-│   ├── .env.example                 ← Env template (copy to .env)
-│   └── cerebro_workflow_v2.json     ← n8n Telegram → Hermes routing workflow
-├── hermes-agent/                    ← Hermes gateway (agent brain)
-│   ├── README.md                    ← Hermes architecture + deployment
-│   ├── mcp-server/
-│   │   ├── gateway.js               ← HTTP gateway on :8080 (used by n8n)
-│   │   ├── server.js                ← Native MCP server over stdio (optional)
-│   │   ├── Dockerfile               ← Node 20 Alpine image
-│   │   └── package.json
-│   ├── k8s/
-│   │   └── hermes-stack.yaml         ← Optional k8s deployment (Hermes only)
-│   └── scripts/
-│       └── deploy.sh                ← Optional k8s deploy helper
+├── Productivity_Tools/              ← AUTOMATION stack (own repo-to-be; see its README/HANDOFF)
+│   ├── README.md                    ← Automation overview + adapting guide
+│   ├── HANDOFF.md                   ← Context brief for the automation agent
+│   ├── LAUNCH.md                    ← Step-by-step bring-up
+│   ├── n8n/                         ← Docker Compose stack (n8n + Hermes + postgres + tailscale)
+│   │   ├── docker-compose.yaml
+│   │   ├── .env.example
+│   │   └── cerebro_workflow_v2.json ← Telegram → Hermes routing workflow
+│   └── hermes-agent/                ← Hermes gateway (agent brain)
+│       ├── mcp-server/              ← gateway.js (:8080), server.js (MCP), Dockerfile
+│       ├── k8s/hermes-stack.yaml    ← Optional k8s deployment (Hermes only)
+│       └── scripts/deploy.sh
 ├── k3s/
 │   └── manifests/
 │       ├── namespaces/              ← Cluster namespaces (ai, monitoring, storage)
@@ -436,7 +429,7 @@ homelab/
 
 ## Security Notes
 
-- Secrets for the Ocra stack live in `n8n/.env`, which is **never committed** (see `.gitignore`). The Telegram bot token is stored inside n8n, not in `.env`.
+- Secrets for the Ocra stack live in `Productivity_Tools/n8n/.env`, which is **never committed** (see `.gitignore`). The Telegram bot token is stored inside n8n, not in `.env`.
 - The `N8N_ENCRYPTION_KEY` must **not** be rotated on an existing install — doing so loses access to credentials already saved in n8n.
 - Hermes runs sandboxed: non-root (UID 1001), all kernel capabilities dropped, a shell allowlist, and writes only to `/workspace/output`.
 - Kubernetes secrets (optional route) are managed with **Sealed Secrets**.
