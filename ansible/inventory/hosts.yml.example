@@ -4,6 +4,8 @@
 # Architecture notes:
 #   - Sadida is the Proxmox VE host. The k3s control-plane (master) runs
 #     directly ON this host, and Ollama also runs locally on it (GPU node).
+#     Proxmox's default (and in this lab, only) account is root — Sadida
+#     connects as root, every other node connects as seth.
 #   - Ocra is the always-on "brain": it runs the Docker Compose stack
 #     (n8n + hermes-gateway + postgres + tailscale), NOT k3s.
 #   - Aery is a 24/7 Debian node running Nextcloud (it used to be a
@@ -19,7 +21,11 @@ all:
       hosts:
         sadida:
           ansible_host: 192.168.68.10
-          ansible_user: seth
+          ansible_user: root         # Proxmox default — no other account exists here
+          # Ansible is run FROM Sadida itself in this lab, so skip SSH
+          # loopback entirely rather than depend on root's own key being
+          # authorized against itself.
+          ansible_connection: local
           role: proxmox_hypervisor   # also k3s master + local Ollama (GPU)
         aery:
           ansible_host: 192.168.68.190
@@ -82,5 +88,6 @@ all:
       hosts:
         sadida:
           ansible_host: 192.168.68.10
-          ansible_user: seth
+          ansible_user: root
+          ansible_connection: local
           k3s_role: master
