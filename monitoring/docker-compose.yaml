@@ -58,6 +58,16 @@ services:
       # buttons call the Control API through Grafana's server-side proxy, so
       # the bearer token stays on the server and never reaches the browser.
       GF_INSTALL_PLUGINS: "volkovlabs-form-panel,yesoreyeram-infinity-datasource"
+      # Grafana 11+ tries to auto-download several bundled "explore" app
+      # plugins on startup (Logs/Traces/Profiles drilldown, Elasticsearch,
+      # Zipkin). None of that applies here — we run neither Loki, Tempo,
+      # Pyroscope, Elasticsearch nor Zipkin — and Ocra has no open internet
+      # egress, so those downloads fail partway and leave a broken plugin
+      # that 404s in the browser ("Could not load plugin ... module.js").
+      # Disabling them by name (rather than GF_PLUGINS_PREINSTALL_DISABLED)
+      # keeps GF_INSTALL_PLUGINS above working, since that migrates through
+      # the same preinstall path in Grafana's config loader.
+      GF_PLUGINS_DISABLE_PLUGINS: "grafana-lokiexplore-app,grafana-pyroscope-app,grafana-exploretraces-app,grafana-metricsdrilldown-app,elasticsearch,zipkin"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
