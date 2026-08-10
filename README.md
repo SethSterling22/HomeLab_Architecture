@@ -74,11 +74,11 @@ Internet
 
 **Tailscale mesh VPN** runs on all nodes, providing stable addressing independent of local network changes. Workers join the k3s cluster using Tailscale IPs so the cluster remains functional across network reconfigurations. Nodes reach each other by MagicDNS names such as `sadida.stegosaurus-panga.ts.net`.
 
-**NFS mount on Sadida:**
-```
-192.168.68.190:/volume1/homes → /mnt/data
-```
-Mounted read-write via `/etc/fstab` with the `_netdev` flag; auto-mounts on reboot once the network is available.
+**NFS mount on Sadida — retired.** Sadida used to mount
+`192.168.68.190:/volume1/homes` at `/mnt/data` (the `/volume1/...` path was
+Synology DSM's volume naming). That mount has been removed now that Aery was
+rebuilt as a plain Debian node. A new NFS export from Aery, if needed, will use
+a different path and will be documented here once it exists.
 
 ---
 
@@ -148,15 +148,10 @@ graph TB
         TAILSCALE["Tailscale Mesh VPN\nAll nodes connected"]
     end
 
-    subgraph storage["💽 Storage"]
-        NFS["Aery NFS\n/volume1/homes\n→ /mnt/data on Sadida"]
-    end
-
     OCRA -->|Ollama API :11434| SADIDA
     SADIDA -->|k3s API| SRAM
     SADIDA -.->|on-demand| XELOR
     SADIDA -.->|on-demand| SACRO
-    AERY -->|NFS mount| SADIDA
 
     SWITCH --- SADIDA
     SWITCH --- AERY
@@ -220,7 +215,7 @@ graph LR
 
     subgraph storage["Storage"]
         PVC["PersistentVolumeClaims"]
-        NFS["NFS → Aery\n/volume1/homes"]
+        NFS["NFS → Aery\n(export path pending re-setup)"]
     end
 
     subgraph monitoring["Monitoring Namespace"]
@@ -361,13 +356,11 @@ kubectl get pods -n ai                 # optional AI namespace (OpenClaw, etc.)
 ./scripts/k3s/join-worker.sh xelor     # join a worker manually after WOL
 ```
 
-### Mount Aery NFS manually (if needed)
+### Aery NFS
 
-```bash
-mount /mnt/data
-# or force remount of all fstab entries:
-mount -a
-```
+The old Synology-era mount (`/volume1/homes` → `/mnt/data` on Sadida) has been
+retired — see [Network Architecture](#network-architecture). A new export from
+Aery (Debian) will be documented here once one exists.
 
 ---
 

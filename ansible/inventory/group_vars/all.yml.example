@@ -19,9 +19,13 @@ proxmox_api_token_id: "ansible"
 proxmox_api_token_secret: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 proxmox_node: "sadida"
 
-# ── Aery NFS (Synology) ──────────────────────────────────────────
+# ── Aery NFS ──────────────────────────────────────────────────────
+# Aery was rebuilt from Synology DSM to plain Debian + Nextcloud. The old
+# DSM-style export (/volume1/k3s) no longer exists. Fill this in once a new
+# NFS export is configured on Aery; until then the k3s NFS StorageClass
+# (k3s/manifests/storage/nfs-storageclass.yaml) has no working backend.
 aery_nfs_server: "192.168.68.190"
-aery_nfs_path: "/volume1/k3s"
+aery_nfs_path: ""  # TBD — set once Aery exports a new NFS share
 
 # ── Ollama (local host service on Sadida, GPU) ───────────────────
 ollama_host: "sadida.stegosaurus-panga.ts.net"

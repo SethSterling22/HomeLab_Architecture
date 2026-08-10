@@ -1,7 +1,15 @@
 ---
 # k3s/manifests/storage/nfs-storageclass.yaml
 # StorageClass that uses Aery (192.168.68.190) as the NFS backend.
-# Requires: helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner
+#
+# ⚠️ Aery was rebuilt from Synology DSM to plain Debian + Nextcloud. The old
+# DSM-style export path (/volume1/...) no longer exists, and the underlying
+# NFS server mount on Sadida was removed. This StorageClass has no working
+# backend until a new export is configured on Aery and the provisioner below
+# is re-installed pointing at it.
+#
+# Requires: helm install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+#             --set nfs.server=<aery-address> --set nfs.path=<new-export-path>
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:

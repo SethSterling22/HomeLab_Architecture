@@ -19,7 +19,7 @@ declare -A NODES=(
 )
 declare -A NODE_ROLES=(
   [sadida]="Proxmox VE · k3s master · Ollama (local, GPU)"
-  [aery]="NAS · Synology DSM · NFS"
+  [aery]="Debian 13 · Nextcloud · NFS (export pending re-setup)"
   [sram]="k3s worker · dev"
   [ocra]="Brain 24/7 · Docker Compose (n8n + Hermes + postgres)"
   [xelor]="k3s worker · staging / CI (on-demand)"
