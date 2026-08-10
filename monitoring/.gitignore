@@ -4,5 +4,9 @@
 
 # SSH keys, kubeconfig and known_hosts for the Control API.
 # These grant power-off access to the fleet — never commit them.
-secrets/
+#
+# Note: this must be `secrets/*`, not `secrets/`. Git does not descend into an
+# ignored directory, so with `secrets/` the negation below would never apply
+# and the placeholder would be dropped.
+secrets/*
 !secrets/.gitkeep

@@ -1,4 +1,20 @@
+# Secrets — never commit
 .env
 .env.local
 .env.*.local
-.env.example!
+# Templates are meant to be tracked (the pattern above does not match them,
+# but keep this explicit so it survives future edits).
+!.env.example
+
+# Ansible inventory with real IPs, MACs and tokens
+ansible/inventory/hosts.yml
+ansible/inventory/group_vars/all.yml
+
+# Control API credentials: SSH key, known_hosts and kubeconfig.
+# These grant power-off access to the whole fleet.
+monitoring/secrets/*
+!monitoring/secrets/.gitkeep
+
+# OS noise
+.DS_Store
+node_modules/

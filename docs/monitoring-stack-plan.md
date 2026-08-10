@@ -178,24 +178,34 @@ that Grafana handles poorly:
   exportable report.
 
 Recommendation: don't build the custom panel up front; add it only if a concrete
-gap remains after Phase 4.
+gap remains once the Control API is in daily use. As shipped, the Business Forms
+panel already covers the confirmation dialog, and the editable `$rate_usd_kwh`
+variable covers the tariff side of the cost calculator.
 
 ---
 
 ## Phased roadmap
 
-| Phase | Deliverable | Depends on |
-| --- | --- | --- |
-| **0** ✅ | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all nodes via Ansible; base CPU/RAM/temp/net dashboard. | — |
-| **4** ✅ | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | 0 |
-| **1** | `process-exporter` (top processes) + nvidia GPU exporter on Sadida (real GPU watts). | 0 |
-| **3** | Refined power model + **energy/cost/efficiency dashboard**. A first-pass model with an editable USD tariff already ships in Phase 0. | 1 |
-| **5** *(optional)* | One-time smart-plug calibration; custom panel for any remaining gaps. | 3, 4 |
+| Phase | Deliverable | Status | Depends on |
+| --- | --- | --- | --- |
+| **0** | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all nodes via Ansible; base CPU/RAM/temperature/availability dashboard; first-pass power model with an editable USD tariff. | ✅ Done — `monitoring/` | — |
+| **1** | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | ✅ Done — `monitoring/control-api/` | 0 |
+| **2** | `process-exporter` (per-process CPU/memory — "what is running") + nvidia GPU exporter on Sadida (**real** GPU watts, the only measured power in the model). | Open | 0 |
+| **3** | **Calibration.** One metering smart plug, moved node to node, to replace the guessed `P_idle`/`P_max` constants with measured ones. | Open | 0 |
+| **4** | Refined power model (factor in disk and network I/O, which matter for Aery) + efficiency dashboard: kWh per 1k requests, watts per active core-hour, month-over-month comparison. | Open | 2, 3 |
 
-Phase 2 (Synology SNMP) is **cancelled** — Aery was rebuilt as Debian, so it is
-covered by the standard `node_exporter` path in Phase 0.
+**Do Phase 3 before Phase 4.** Refining the maths of a model whose constants are
+guesses is polishing sand — calibration buys far more accuracy for far less work.
 
-Phases 0 and 4 are implemented in `monitoring/`. Phases 1/3/5 remain open.
+### Removed
+
+**Synology SNMP for Aery** was a planned phase. It is **cancelled**: Aery was
+rebuilt from Synology DSM into a plain Debian node running Nextcloud, so it is
+covered by the standard `node_exporter` path in Phase 0. No SNMP exporter, no
+separate dashboard, no special case anywhere in the config.
+
+> Note: phases were renumbered when that step was removed. What earlier drafts
+> of this document called phases 4, 1, 5 and 3 are now 1, 2, 3 and 4.
 
 ---
 
@@ -204,10 +214,11 @@ Phases 0 and 4 are implemented in `monitoring/`. Phases 1/3/5 remain open.
 1. ~~Electricity tariff & currency~~ — resolved: USD, editable at runtime via the
    `$rate_usd_kwh` dashboard variable.
 2. ~~Enable SNMP on Aery~~ — no longer applicable (Aery is Debian now).
-3. **GPU exporter choice** on Sadida (DCGM exporter vs. the lighter
-   `nvidia_gpu_exporter`) — Phase 1.
+3. **GPU exporter choice** on Sadida: DCGM exporter vs. the lighter
+   `nvidia_gpu_exporter` — Phase 2.
 4. Confirm the automation agent will expose Hermes `/metrics` and enable
-   `N8N_METRICS` so request counts can be scraped.
+   `N8N_METRICS` so request counts can be scraped. The scrape jobs are already
+   written and commented out in `monitoring/prometheus/prometheus.yml`.
 5. **Per-node `P_idle` / `P_max` constants** currently use documented estimates
-   in `monitoring/prometheus/rules/power-model.yml`. Calibrate with a metering
-   plug when convenient (Phase 5).
+   in `monitoring/prometheus/rules/power-model.yml`. Calibrating them (Phase 3)
+   is the single highest-value accuracy improvement available.

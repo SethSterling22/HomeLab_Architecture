@@ -15,7 +15,7 @@
 #     (Nextcloud + spinning disks) is the least accurate node in the fleet.
 #   * The model ignores PSU conversion losses, fans, and RAM scaling.
 #   * Expect roughly +/-20-40% error until the constants below are calibrated
-#     against a real metering plug (see Phase 5 in docs/monitoring-stack-plan.md).
+#     against a real metering plug (see Phase 3 in docs/monitoring-stack-plan.md).
 #
 # The constants below are DOCUMENTED GUESSES based on class of hardware, not
 # measured values. Calibrating them is the single highest-value improvement to
@@ -133,7 +133,7 @@ groups:
 
       # Total power = modelled platform power + REAL measured GPU watts.
       # The `or ... * 0` branch is a graceful fallback: until the nvidia
-      # exporter is deployed (Phase 1), every node contributes 0 GPU watts
+      # exporter is deployed (Phase 2), every node contributes 0 GPU watts
       # instead of dropping out of the series entirely.
       - record: node:power_watts:total
         expr: |

@@ -3,7 +3,7 @@
 Prometheus + Grafana + a small Control API, running on **Ocra**. Gives you one
 page to see the fleet's health and energy cost, and to power nodes on and off.
 
-Implements **Phase 0** and **Phase 4** of `docs/monitoring-stack-plan.md`.
+Implements **Phases 0 and 1** of `docs/monitoring-stack-plan.md`.
 
 ## What you get
 
@@ -46,6 +46,32 @@ phantom idle draw. This is what makes the on-demand nodes look cheap — correct
 ---
 
 ## Install
+
+### Which machine runs what
+
+Two different roles — this trips people up:
+
+| Step | Runs from | Why |
+| --- | --- | --- |
+| `ansible-playbook monitoring.yml` | **Any control machine** with SSH to the fleet — Sadida is a fine choice | Ansible pushes to the nodes over SSH; it does not matter where it is launched from |
+| `docker compose up` in `monitoring/` | **Ocra only** | Ocra is always on. If the dashboard lived on Sadida and Sadida went down, the "wake" button would be gone exactly when needed |
+
+So: clone the repo wherever you want to drive Ansible from, but the stack itself
+must be brought up on Ocra.
+
+### 0. Prerequisites on the control machine
+
+```bash
+sudo apt install -y ansible git
+git clone <your-repo> HomeLab_Architecture && cd HomeLab_Architecture
+
+# Inventory: real IPs and MACs (this file is gitignored)
+cp ansible/inventory/hosts.yml.example ansible/inventory/hosts.yml
+$EDITOR ansible/inventory/hosts.yml
+
+# Confirm every node answers before going further
+ansible -i ansible/inventory/hosts.yml monitored -m ping
+```
 
 ### 1. Deploy node_exporter to every node (Ansible)
 
@@ -207,8 +233,8 @@ monitoring/
   `N8N_METRICS=true`; the scrape jobs are already written and commented out in
   `prometheus/prometheus.yml`, ready to enable.
 - **No GPU watts yet.** The model has a slot for real `nvidia-smi` watts on
-  Sadida and falls back to zero until the exporter is deployed (Phase 1).
-- **No per-process metrics yet.** `process-exporter` is Phase 1; today you get
+  Sadida and falls back to zero until the exporter is deployed (Phase 2).
+- **No per-process metrics yet.** `process-exporter` is Phase 2; today you get
   node-level CPU/RAM, not a per-process breakdown.
 - **Control button panel.** The wake/shutdown buttons use the Business Forms
   panel (`volkovlabs-form-panel`). The API endpoints and safety logic are tested
