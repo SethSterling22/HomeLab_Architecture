@@ -44,7 +44,12 @@ services:
       retries: 3
 
   grafana:
-    image: grafana/grafana:11.6.0
+    # Kept in step with current stable Grafana. Plugins installed via
+    # GF_INSTALL_PLUGINS always fetch "latest", so an old pinned Grafana core
+    # paired with a freshly-published plugin is a common source of
+    # "Could not load plugin ... react/jsx-runtime" SystemJS errors, even when
+    # the plugin's declared minimum version is technically satisfied.
+    image: grafana/grafana:13.1.3
     container_name: homelab_grafana
     restart: unless-stopped
     depends_on:
