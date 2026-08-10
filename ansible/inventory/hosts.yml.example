@@ -6,6 +6,8 @@
 #     directly ON this host, and Ollama also runs locally on it (GPU node).
 #   - Ocra is the always-on "brain": it runs the Docker Compose stack
 #     (n8n + hermes-gateway + postgres + tailscale), NOT k3s.
+#   - Aery is a 24/7 Debian node running Nextcloud (it used to be a
+#     Synology DSM NAS; it was rebuilt as plain Debian).
 #   - LAN subnet is 192.168.68.0/24. Tailscale (100.x) is used for links
 #     that must survive LAN reconfigurations.
 ---
@@ -21,9 +23,8 @@ all:
           role: proxmox_hypervisor   # also k3s master + local Ollama (GPU)
         aery:
           ansible_host: 192.168.68.190
-          ansible_user: admin
-          role: nas
-          synology: true
+          ansible_user: seth
+          role: nextcloud            # Debian 24/7, Nextcloud + storage
 
     # ── Always-on brain (Docker Compose, not k3s) ────────────────
     compose_brain:
@@ -60,6 +61,15 @@ all:
     # ── Logical groups ───────────────────────────────────────────
     k3s_workers:
       children:
+        k3s_workers_permanent:
+        k3s_workers_ondemand:
+
+    # Every Linux node that should run node_exporter (see
+    # ansible/playbooks/monitoring.yml). All nodes are Debian-based now.
+    monitored:
+      children:
+        always_on:
+        compose_brain:
         k3s_workers_permanent:
         k3s_workers_ondemand:
 

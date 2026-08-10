@@ -1,0 +1,15 @@
+{
+  "name": "homelab-control-api",
+  "version": "1.0.0",
+  "description": "Authenticated HTTP wrapper around the HomeLab Wake-on-LAN scripts, called by the Grafana control dashboard.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "private": true
+}

@@ -1,0 +1,82 @@
+# monitoring/prometheus/tests/power-model_test.yml
+#
+# Unit tests for the power model. Run them before trusting a change to the
+# constants or to the PromQL — the vector matching between the per-node
+# constants and the utilization series is easy to break silently, and a broken
+# join produces NO output rather than a wrong number, which is easy to miss.
+#
+#   cd monitoring/prometheus/tests
+#   promtool test rules power-model_test.yml
+#
+# Reference values below are derived by hand from the constants in
+# power-model.yml:
+#   ocra   idle 15, max 65  -> at 50% utilization: 15 + (65-15)*0.5 = 40 W
+#   sram   idle 20, max 90  -> at  0% utilization: 20 W
+#   xelor  idle 20, max 95  -> at 100% utilization: 95 W
+#   fleet total: 40 + 20 + 95 = 155 W
+
+rule_files:
+  - ../rules/power-model.yml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 15s
+    input_series:
+      # Idle counter climbs 7.5s per 15s scrape => 50% idle => 50% busy.
+      - series: 'node_cpu_seconds_total{node="ocra",cpu="0",mode="idle"}'
+        values: "0+7.5x200"
+      # Idle climbs a full 15s per 15s => 100% idle => 0% busy.
+      - series: 'node_cpu_seconds_total{node="sram",cpu="0",mode="idle"}'
+        values: "0+15x200"
+      # Idle never climbs => 0% idle => 100% busy.
+      - series: 'node_cpu_seconds_total{node="xelor",cpu="0",mode="idle"}'
+        values: "0+0x200"
+      - series: 'up{job="nodes",node="ocra",instance="ocra"}'
+        values: "1x200"
+
+    promql_expr_test:
+      - expr: node:cpu_utilization:ratio
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="node:cpu_utilization:ratio", node="ocra"}'
+            value: 0.5
+          - labels: '{__name__="node:cpu_utilization:ratio", node="sram"}'
+            value: 0
+          - labels: '{__name__="node:cpu_utilization:ratio", node="xelor"}'
+            value: 1
+
+      # Confirms the constants join correctly onto the utilization series.
+      - expr: node:power_watts:estimated
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="node:power_watts:estimated", node="ocra"}'
+            value: 40
+          - labels: '{__name__="node:power_watts:estimated", node="sram"}'
+            value: 20
+          - labels: '{__name__="node:power_watts:estimated", node="xelor"}'
+            value: 95
+
+      # With no nvidia exporter present, the `or ... * 0` fallback must keep
+      # every node in the series rather than dropping it.
+      - expr: node:power_watts:total
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="node:power_watts:total", node="ocra"}'
+            value: 40
+          - labels: '{__name__="node:power_watts:total", node="sram"}'
+            value: 20
+          - labels: '{__name__="node:power_watts:total", node="xelor"}'
+            value: 95
+
+      - expr: lab:power_watts:total
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="lab:power_watts:total"}'
+            value: 155
+
+      - expr: node:up:status
+        eval_time: 10m
+        exp_samples:
+          - labels: '{__name__="node:up:status", node="ocra"}'
+            value: 1

@@ -1,0 +1,637 @@
+{
+  "uid": "homelab-control",
+  "title": "HomeLab — Nodes, Power & Control",
+  "description": "Fleet status, resource usage and estimated energy cost, with wake/shutdown controls. Power figures are MODELLED, not measured — see monitoring/prometheus/rules/power-model.yml.",
+  "tags": ["homelab", "infrastructure", "power"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "rate_usd_kwh",
+        "label": "Electricity rate (USD/kWh)",
+        "description": "Puerto Rico rates change often — edit this field and every cost panel recalculates. No redeploy needed.",
+        "type": "textbox",
+        "hide": 0,
+        "query": "0.24",
+        "current": {
+          "text": "0.24",
+          "value": "0.24"
+        },
+        "options": [],
+        "skipUrlSync": false
+      },
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "homelab-prometheus"
+        },
+        "definition": "label_values(node:up:status, node)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(node:up:status, node)",
+          "refId": "NodeVariable"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0,
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Fleet control",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Node status",
+      "description": "Reachability of each node's exporter. On-demand nodes (Xelor, Sacro) read Offline while asleep — that is expected, not an error.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 14, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "node:up:status",
+          "legendFormat": "{{node}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "OFFLINE", "color": "red", "index": 0 },
+                "1": { "text": "ONLINE", "color": "green", "index": 1 }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "noValue": "ASLEEP"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "volkovlabs-form-panel",
+      "title": "Power control",
+      "description": "Wake or shut down a node. Shutdown drains the node from k3s first and asks for confirmation. Protected nodes (Sadida, Ocra, Aery) are rejected by the Control API even if selected here.",
+      "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "homelab-control-api" },
+      "gridPos": { "h": 6, "w": 10, "x": 14, "y": 1 },
+      "options": {
+        "initial": {
+          "method": "-",
+          "contentType": "application/json",
+          "highlightColor": false,
+          "highlight": false
+        },
+        "update": {
+          "method": "POST",
+          "url": "/control/wake/${payload.node}",
+          "contentType": "application/json",
+          "payloadMode": "custom",
+          "getPayload": "return {};",
+          "confirm": true
+        },
+        "reset": {
+          "variant": "hidden"
+        },
+        "submit": {
+          "variant": "primary",
+          "text": "Run action",
+          "icon": "bolt",
+          "foregroundColor": "",
+          "backgroundColor": ""
+        },
+        "saveDefault": {
+          "variant": "hidden"
+        },
+        "buttonGroup": {
+          "orientation": "center",
+          "size": "md"
+        },
+        "confirmModal": {
+          "title": "Confirm node action",
+          "body": "This will change the power state of a physical machine. Continue?",
+          "confirm": "Yes, do it",
+          "cancel": "Cancel",
+          "columns": {
+            "include": ["name", "newValue"],
+            "name": "Field",
+            "newValue": "Value"
+          }
+        },
+        "layout": {
+          "variant": "single",
+          "orientation": "vertical",
+          "padding": 10
+        },
+        "elements": [
+          {
+            "id": "action",
+            "uid": "action",
+            "title": "Action",
+            "type": "radio",
+            "value": "wake",
+            "options": [
+              { "id": "wake", "label": "Wake", "value": "wake" },
+              { "id": "shutdown", "label": "Shut down", "value": "shutdown" }
+            ],
+            "section": ""
+          },
+          {
+            "id": "node",
+            "uid": "node",
+            "title": "Node",
+            "type": "select",
+            "value": "xelor",
+            "options": [
+              { "id": "xelor", "label": "Xelor (on-demand)", "value": "xelor" },
+              { "id": "sacro", "label": "Sacro (on-demand)", "value": "sacro" },
+              { "id": "sram", "label": "Sram (24/7 worker)", "value": "sram" }
+            ],
+            "section": ""
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Resources",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CPU utilization",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "node:cpu_utilization:ratio{node=~\"$node\"} * 100",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Memory utilization",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "node:memory_utilization:ratio{node=~\"$node\"} * 100",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Temperature (hottest sensor per node)",
+      "description": "Requires lm-sensors, installed by ansible/playbooks/monitoring.yml. Nodes with no exposed hwmon sensor will show no data.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "max by (node) (node_hwmon_temp_celsius{node=~\"$node\"})",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Availability (up = 1)",
+      "description": "Feeds the uptime statistics. The gaps on Xelor and Sacro are the point: time asleep is time not costing electricity.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "node:up:status{node=~\"$node\"}",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Energy & cost (estimated — see panel descriptions)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Fleet draw right now",
+      "description": "MODELLED, not measured: P_idle + (P_max - P_idle) x CPU utilization, plus real GPU watts on Sadida once the nvidia exporter is deployed. Expect +/-20-40% until calibrated.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:power_watts:total",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 200 },
+              { "color": "orange", "value": 350 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Energy in selected range",
+      "description": "Average modelled power across the dashboard time range, integrated over that range.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(avg_over_time(node:power_watts:total[$__range])) * ($__range_s / 3600) / 1000",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Cost in selected range",
+      "description": "Energy in range x the rate in the 'Electricity rate' field at the top of the dashboard.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(avg_over_time(node:power_watts:total[$__range])) * ($__range_s / 3600) / 1000 * $rate_usd_kwh",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Projected monthly cost",
+      "description": "Extrapolates the last 24 hours to a 730-hour month. This is a projection from recent behaviour, not a measured bill.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(avg_over_time(node:power_watts:total[24h])) * 730 / 1000 * $rate_usd_kwh",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "orange", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Estimated power per node",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 31 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "node:power_watts:total{node=~\"$node\"}",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "stacking": { "mode": "normal", "group": "A" },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 26,
+      "type": "table",
+      "title": "Cost breakdown by node (selected range)",
+      "description": "Per-node energy and cost over the dashboard time range. Use this for the running-cost quotation; remember the figures are modelled.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 31 },
+      "targets": [
+        {
+          "refId": "watts",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "avg_over_time(node:power_watts:total{node=~\"$node\"}[$__range])",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "kwh",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "avg_over_time(node:power_watts:total{node=~\"$node\"}[$__range]) * ($__range_s / 3600) / 1000",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "cost",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "avg_over_time(node:power_watts:total{node=~\"$node\"}[$__range]) * ($__range_s / 3600) / 1000 * $rate_usd_kwh",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "node", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "tier": true,
+              "role": true,
+              "lab": true
+            },
+            "renameByName": {
+              "node": "Node",
+              "Value #watts": "Avg watts",
+              "Value #kwh": "kWh",
+              "Value #cost": "Cost (USD)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Cost (USD)" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Avg watts" },
+            "properties": [{ "id": "unit", "value": "watt" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "kWh" },
+            "properties": [{ "id": "unit", "value": "kwatth" }]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Cost (USD)", "desc": true }]
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  }
+}

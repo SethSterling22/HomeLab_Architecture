@@ -1,0 +1,16 @@
+apiVersion: 1
+
+providers:
+  - name: HomeLab
+    orgId: 1
+    folder: HomeLab
+    type: file
+    disableDeletion: false
+    # Dashboards are versioned in git, so edits made in the UI are transient
+    # by design. To keep a change, export the JSON back into
+    # monitoring/grafana/dashboards/.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

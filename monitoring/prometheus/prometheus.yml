@@ -1,0 +1,100 @@
+# monitoring/prometheus/prometheus.yml
+#
+# Scrape configuration for the HomeLab fleet.
+#
+# Targets are addressed by Tailscale MagicDNS rather than LAN IP so the stack
+# keeps working across LAN reconfigurations. Every node runs node_exporter on
+# :9100 (installed by ansible/playbooks/monitoring.yml).
+#
+# The `node` label is what every dashboard query and power-model rule joins on.
+# Keep it stable and lowercase; it must match the node names used by the
+# Control API and by scripts/wol/*.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    lab: homelab
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ── Prometheus itself ──────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          node: ocra
+
+  # ── Fleet: node_exporter on every node ─────────────────────────
+  # On-demand nodes (xelor, sacro) will show as down while asleep. That is
+  # expected and is itself the data behind the uptime/availability panels,
+  # so they are deliberately NOT excluded here.
+  - job_name: nodes
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["sadida.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: sadida
+          tier: always_on
+          role: hypervisor
+      - targets: ["ocra.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: ocra
+          tier: always_on
+          role: automation_brain
+      - targets: ["aery.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: aery
+          tier: always_on
+          role: nextcloud_storage
+      - targets: ["sram.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: sram
+          tier: always_on
+          role: k3s_worker
+      - targets: ["xelor.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: xelor
+          tier: on_demand
+          role: k3s_worker
+      - targets: ["sacro.stegosaurus-panga.ts.net:9100"]
+        labels:
+          node: sacro
+          tier: on_demand
+          role: k3s_worker
+    relabel_configs:
+      # Strip the port so `instance` reads as a clean hostname in panels.
+      - source_labels: [__address__]
+        regex: "([^:]+)(:[0-9]+)?"
+        target_label: instance
+        replacement: "${1}"
+
+  # ── Control API (also exposes its own health) ──────────────────
+  - job_name: control-api
+    static_configs:
+      - targets: ["control-api:8090"]
+        labels:
+          node: ocra
+
+  # ── Automation stack request counts (Productivity_Tools) ───────
+  # Owned by the automation agent, not this repo. These targets stay
+  # commented out until that side exposes /metrics:
+  #   - Hermes gateway: add a Prometheus counter per POST /tool/:name
+  #   - n8n: set N8N_METRICS=true
+  # See docs/monitoring-stack-plan.md "Requests count — cross-repo coordination".
+  #
+  # - job_name: hermes
+  #   static_configs:
+  #     - targets: ["ocra.stegosaurus-panga.ts.net:8080"]
+  #       labels:
+  #         node: ocra
+  #
+  # - job_name: n8n
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["ocra.stegosaurus-panga.ts.net:5678"]
+  #       labels:
+  #         node: ocra

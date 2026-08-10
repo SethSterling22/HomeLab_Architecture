@@ -1,0 +1,31 @@
+# Auto-provisioned datasources. Grafana reads this at startup, so the stack
+# comes up already wired — no clicking through the UI after a rebuild.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: homelab-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+
+  # The Control API is exposed to the browser through Grafana's server-side
+  # proxy. This keeps the bearer token on the server: it is injected from the
+  # environment below and never reaches the dashboard JSON or the browser.
+  - name: Control API
+    uid: homelab-control-api
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    url: ${CONTROL_API_URL}
+    editable: false
+    jsonData:
+      auth_method: bearerToken
+      allowedHosts:
+        - ${CONTROL_API_URL}
+    secureJsonData:
+      bearerToken: ${CONTROL_API_TOKEN}

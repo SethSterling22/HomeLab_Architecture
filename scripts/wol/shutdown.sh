@@ -10,6 +10,7 @@
 #   ./scripts/wol/shutdown.sh ocra
 #   ./scripts/wol/shutdown.sh all
 #   ./scripts/wol/shutdown.sh all --skip-drain   # fast shutdown without draining
+#   ./scripts/wol/shutdown.sh xelor --yes        # non-interactive (used by the Control API)
 
 set -euo pipefail
 
@@ -44,6 +45,10 @@ MASTER_NODE="sadida"
 
 # ── Flags ─────────────────────────────────────────────────────────
 SKIP_DRAIN=false
+# ASSUME_YES skips the interactive prompt. Required when this script is
+# invoked by a non-interactive caller such as monitoring/control-api,
+# which has no TTY to answer the prompt.
+ASSUME_YES=false
 
 # ── Functions ─────────────────────────────────────────────────────
 check_deps() {
@@ -144,6 +149,7 @@ usage() {
   echo ""
   echo "  Options:"
   echo "    --skip-drain    Power off without draining pods (emergency shutdown)"
+  echo "    --yes, -y       Do not prompt for confirmation (non-interactive callers)"
   echo ""
   echo "  Examples:"
   echo "    $0 xelor                 # Drain and power off Xelor"
@@ -156,6 +162,12 @@ usage() {
 
 confirm() {
   local target="$1"
+
+  if [[ "$ASSUME_YES" == "true" ]]; then
+    warn "Non-interactive mode (--yes): powering off ${target} without prompting"
+    return 0
+  fi
+
   echo ""
   echo -e "  ${YELLOW}⚠️  You are about to power off: ${BOLD}${target}${NC}"
   [[ "$SKIP_DRAIN" == "true" ]] && echo -e "  ${RED}⚠️  No drain — active pods will be interrupted${NC}"
@@ -180,6 +192,7 @@ main() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-drain) SKIP_DRAIN=true; shift ;;
+      --yes|-y)     ASSUME_YES=true; shift ;;
       *) err "Unknown argument: $1" ;;
     esac
   done

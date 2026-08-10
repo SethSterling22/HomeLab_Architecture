@@ -11,6 +11,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 - [Nodes and Roles](#nodes-and-roles)
 - [Network Architecture](#network-architecture)
 - [AI Stack](#ai-stack)
+- [Monitoring & Node Control](#monitoring--node-control)
 - [Diagrams](#diagrams)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
@@ -26,7 +27,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 | Node | Base OS | Role | Availability |
 |------|---------|------|--------------|
 | **Sadida** | Proxmox VE 8 (Debian 13 Trixie kernel) | Hypervisor · k3s control-plane · **Ollama (local host service, GPU RTX 3050)** | 24/7 |
-| **Aery** | Synology DSM | NAS · NFS persistent volumes (`/volume1/homes`) · Backup | 24/7 |
+| **Aery** | Debian 13 Trixie (bare metal) | **Nextcloud** · file storage / NFS persistent volumes · Backup | 24/7 |
 | **Sram** | Debian 13 Trixie (bare metal) | k3s worker · development environments (no GPU) | 24/7 |
 | **Ocra** | Debian 13 Trixie (bare metal) | **Brain 24/7 — Docker Compose: n8n + Hermes gateway + PostgreSQL + Tailscale**; also a k3s worker | 24/7 |
 | **Xelor** | Debian 13 Trixie (bare metal) | k3s worker on-demand · staging · CI/CD | On-demand |
@@ -37,7 +38,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 | Node | LAN IP | Role |
 |------|--------|------|
 | Sadida (Proxmox) | `192.168.68.10` | k3s control-plane · Ollama |
-| Aery (Synology) | `192.168.68.190` | NFS server |
+| Aery (Debian) | `192.168.68.190` | Nextcloud · NFS server |
 | Ocra | `192.168.68.100` | AI brain (Docker Compose) · k3s worker |
 | Sram | `192.168.68.108` | k3s worker |
 | Xelor | `192.168.68.114` | k3s worker (on-demand) |
@@ -64,7 +65,7 @@ Internet
           │
           └── Gigabit Ethernet Switch
                  ├── Sadida     192.168.68.10   (Proxmox + k3s master + Ollama)
-                 ├── Aery       192.168.68.190  (Synology NAS)
+                 ├── Aery       192.168.68.190  (Debian · Nextcloud · NFS)
                  ├── Ocra       192.168.68.100  (AI brain — Docker Compose)
                  ├── Sram       192.168.68.108  (k3s worker)
                  ├── Xelor      192.168.68.114  (k3s worker, on-demand)
@@ -93,6 +94,34 @@ The AI layer is split into two concerns. **This repository owns the infrastructu
 
 ---
 
+## Monitoring & Node Control
+
+`monitoring/` runs **Prometheus + Grafana + a small Control API** on Ocra, giving
+one page for fleet health, energy cost, and graphical power control.
+
+- **Metrics** — `node_exporter` on every node (deployed by
+  `ansible/playbooks/monitoring.yml`): CPU, memory, temperature, availability.
+- **Energy & cost** — a modelled power estimate per node, converted to kWh and
+  **USD** using an electricity rate you edit directly in the dashboard header
+  (Puerto Rico rates change often, so it is never baked into config).
+- **Control** — wake/shutdown buttons that call a token-authenticated Control
+  API wrapping `scripts/wol/*`. Shutdown is blocked by default for Sadida, Ocra
+  and Aery; Ocra especially, since it hosts the dashboard itself.
+
+```bash
+ansible-playbook ansible/playbooks/monitoring.yml   # exporters on all nodes
+cd monitoring && cp .env.example .env && sudo docker compose up -d --build
+```
+
+Grafana: `http://ocra.stegosaurus-panga.ts.net:3000` → folder **HomeLab**.
+
+> ⚠️ Power figures are **estimates, not measurements** (±20–40%). Calibrate the
+> constants in `monitoring/prometheus/rules/power-model.yml` with a metering
+> plug before quoting absolute costs. See `monitoring/README.md` and
+> `docs/monitoring-stack-plan.md`.
+
+---
+
 ## Diagrams
 
 ### Node Overview
@@ -101,7 +130,7 @@ The AI layer is split into two concerns. **This repository owns the infrastructu
 graph TB
     subgraph always_on["🟢 Always On"]
         SADIDA["🖥️ Sadida\nProxmox VE · k3s master\nOllama (local, GPU)\n192.168.68.10"]
-        AERY["💾 Aery\nSynology DSM · NAS\n192.168.68.190"]
+        AERY["💾 Aery\nDebian 13 · Nextcloud · NFS\n192.168.68.190"]
     end
 
     subgraph workers_24["🔵 Nodes 24/7"]
@@ -239,7 +268,7 @@ flowchart TD
 ## Prerequisites
 
 - **Sadida:** Proxmox VE 8.x installed, BIOS with VT-d enabled for GPU passthrough, `_netdev` NFS mount configured, Ollama installed as a local service with the two models pulled
-- **Aery:** Synology DSM with NFS service enabled, `/volume1/homes` exported to `192.168.68.0/24` and `100.0.0.0/8`
+- **Aery:** Debian 13 Trixie with Nextcloud installed and an NFS server export shared to `192.168.68.0/24` and `100.0.0.0/8`
 - **Ocra:** Debian 13 Trixie, Docker + Docker Compose installed (this is where the AI brain runs)
 - **Sram / Xelor / Sacro:** Debian 13 Trixie installed, user with sudo, SSH active
 - **Network:** All nodes on the same broadcast domain (same switch)
@@ -403,6 +432,14 @@ homelab/
 │       ├── mcp-server/              ← gateway.js (:8080), server.js (MCP), Dockerfile
 │       ├── k8s/hermes-stack.yaml    ← Optional k8s deployment (Hermes only)
 │       └── scripts/deploy.sh
+├── monitoring/                      ← Metrics, energy cost + node power control (Ocra)
+│   ├── docker-compose.yaml          ← Prometheus + Grafana + Control API
+│   ├── prometheus/
+│   │   ├── prometheus.yml           ← Scrape targets (all nodes via MagicDNS)
+│   │   ├── rules/power-model.yml    ← Per-node watt constants (edit to calibrate)
+│   │   └── tests/                   ← promtool unit tests for the power model
+│   ├── grafana/                     ← Provisioned datasources + dashboard JSON
+│   └── control-api/                 ← Token-auth wrapper around scripts/wol/*
 ├── k3s/
 │   └── manifests/
 │       ├── namespaces/              ← Cluster namespaces (ai, monitoring, storage)
@@ -419,6 +456,7 @@ homelab/
 │   │   └── status.sh                ← Node status + Ollama models
 │   ├── k3s/
 │   │   └── join-worker.sh           ← Join a worker to the cluster
+│   │                                  (wol/* is also driven by the Control API)
 │   └── ai/
 │       └── pull-models.sh           ← Pull models into Ollama on Sadida
 └── docs/

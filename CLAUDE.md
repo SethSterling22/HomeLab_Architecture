@@ -12,7 +12,11 @@ Proxmox, Tailscale, Wake-on-LAN, and the provisioning that keeps them running.
 ## In scope (this repo)
 
 - Nodes and roles (Sadida, Aery, Ocra, Sram, Xelor, Sacro) and their IPs/MACs.
+  **Aery is a 24/7 Debian node running Nextcloud** — it is no longer a Synology
+  DSM NAS. Xelor and Sacro remain the on-demand (Wake-on-LAN) workers.
 - Network: LAN, Tailscale mesh, MagicDNS, NFS mounts.
+- Monitoring and node power control (`monitoring/`): Prometheus + Grafana on
+  Ocra, node_exporter via Ansible, and the Control API that wraps `scripts/wol/`.
 - k3s cluster: control-plane on Sadida, workers, `k3s/manifests/` (namespaces,
   storage, ingress, monitoring, and the `ai/` manifests — `ollama.yaml`
   ExternalName and `apps.yaml` OpenClaw UI).

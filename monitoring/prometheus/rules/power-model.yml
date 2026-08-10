@@ -1,0 +1,159 @@
+# monitoring/prometheus/rules/power-model.yml
+#
+# Software power model for the fleet.
+#
+# ⚠️  READ THIS BEFORE TRUSTING THE COST NUMBERS
+#
+# These are ESTIMATES, not measurements. There is no wattmeter in the loop.
+# We model each node's draw as a linear ramp between an idle floor and a
+# loaded ceiling, driven by CPU utilization:
+#
+#     P(t) = P_idle + (P_max - P_idle) * cpu_utilization(t)
+#
+# Known limitations, stated plainly:
+#   * CPU utilization is a poor proxy for disk- and network-bound work. Aery
+#     (Nextcloud + spinning disks) is the least accurate node in the fleet.
+#   * The model ignores PSU conversion losses, fans, and RAM scaling.
+#   * Expect roughly +/-20-40% error until the constants below are calibrated
+#     against a real metering plug (see Phase 5 in docs/monitoring-stack-plan.md).
+#
+# The constants below are DOCUMENTED GUESSES based on class of hardware, not
+# measured values. Calibrating them is the single highest-value improvement to
+# the accuracy of the cost dashboard. To calibrate: plug one node into a
+# metering smart plug, read watts at idle and under `stress-ng` load, then edit
+# the two numbers here and reload Prometheus.
+#
+# A node that is asleep (xelor/sacro) produces no samples at all, so it
+# contributes zero to the fleet total rather than a phantom idle draw. That is
+# intentional and is what makes the on-demand nodes look cheap.
+
+groups:
+  # ── Per-node constants ────────────────────────────────────────────
+  # Edit these two numbers per node to calibrate. Everything downstream
+  # (watts, kWh, USD, efficiency) derives from them.
+  - name: power-model-constants
+    interval: 1m
+    rules:
+      # Sadida — Proxmox host, desktop-class CPU. Excludes the RTX 3050,
+      # whose real draw is added separately in node:power_watts:total.
+      - record: node:power_idle_watts:const
+        expr: vector(55)
+        labels:
+          node: sadida
+      - record: node:power_max_watts:const
+        expr: vector(180)
+        labels:
+          node: sadida
+
+      # Ocra — small always-on box running the Docker Compose brain.
+      - record: node:power_idle_watts:const
+        expr: vector(15)
+        labels:
+          node: ocra
+      - record: node:power_max_watts:const
+        expr: vector(65)
+        labels:
+          node: ocra
+
+      # Aery — Nextcloud + storage. Higher idle floor because the disks spin
+      # regardless of CPU load; this is the node most in need of calibration.
+      - record: node:power_idle_watts:const
+        expr: vector(35)
+        labels:
+          node: aery
+      - record: node:power_max_watts:const
+        expr: vector(90)
+        labels:
+          node: aery
+
+      # Sram — 24/7 bare-metal k3s worker.
+      - record: node:power_idle_watts:const
+        expr: vector(20)
+        labels:
+          node: sram
+      - record: node:power_max_watts:const
+        expr: vector(90)
+        labels:
+          node: sram
+
+      # Xelor — on-demand worker (staging).
+      - record: node:power_idle_watts:const
+        expr: vector(20)
+        labels:
+          node: xelor
+      - record: node:power_max_watts:const
+        expr: vector(95)
+        labels:
+          node: xelor
+
+      # Sacro — on-demand worker (observability).
+      - record: node:power_idle_watts:const
+        expr: vector(20)
+        labels:
+          node: sacro
+      - record: node:power_max_watts:const
+        expr: vector(95)
+        labels:
+          node: sacro
+
+  # ── Derived series ────────────────────────────────────────────────
+  - name: power-model
+    interval: 30s
+    rules:
+      # CPU utilization as a 0..1 ratio, averaged across all cores.
+      # Clamped so a briefly negative rate (counter reset) cannot produce
+      # negative watts.
+      - record: node:cpu_utilization:ratio
+        expr: |
+          clamp_max(
+            clamp_min(
+              1 - avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m])),
+              0
+            ),
+            1
+          )
+
+      # Memory utilization, for the dashboard (not part of the power model).
+      - record: node:memory_utilization:ratio
+        expr: |
+          1 - (
+            sum by (node) (node_memory_MemAvailable_bytes)
+            /
+            sum by (node) (node_memory_MemTotal_bytes)
+          )
+
+      # Estimated platform power (CPU + chassis), excluding GPU.
+      - record: node:power_watts:estimated
+        expr: |
+          node:power_idle_watts:const
+          + (
+              (node:power_max_watts:const - node:power_idle_watts:const)
+              * on (node) node:cpu_utilization:ratio
+            )
+
+      # Total power = modelled platform power + REAL measured GPU watts.
+      # The `or ... * 0` branch is a graceful fallback: until the nvidia
+      # exporter is deployed (Phase 1), every node contributes 0 GPU watts
+      # instead of dropping out of the series entirely.
+      - record: node:power_watts:total
+        expr: |
+          node:power_watts:estimated
+          + on (node) (
+              sum by (node) (nvidia_gpu_power_draw_watts)
+              or
+              (node:power_watts:estimated * 0)
+            )
+
+      # Fleet-wide instantaneous draw.
+      - record: lab:power_watts:total
+        expr: sum(node:power_watts:total)
+
+      # Convenience: power per node expressed in kW, so dashboard panels can
+      # multiply straight by a $/kWh tariff without unit juggling.
+      - record: node:power_kw:total
+        expr: node:power_watts:total / 1000
+
+      # Node availability (1 = reachable, 0 = down/asleep). Drives the status
+      # badges and the uptime statistics.
+      - record: node:up:status
+        expr: max by (node) (up{job="nodes"})

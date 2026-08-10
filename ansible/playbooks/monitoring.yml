@@ -1,0 +1,161 @@
+---
+# ansible/playbooks/monitoring.yml
+# Installs node_exporter as a systemd service on every monitored node.
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/monitoring.yml
+#   ansible-playbook ansible/playbooks/monitoring.yml --limit sadida
+#
+# On-demand nodes (xelor, sacro) must be awake for this to reach them:
+#   ./scripts/wol/wake.sh all
+#
+# node_exporter is intentionally installed from the upstream tarball rather
+# than apt: Debian's packaged version lags well behind, and we want the
+# hwmon/thermal collectors that feed the temperature and power panels.
+
+- name: Install node_exporter on all monitored nodes
+  hosts: monitored
+  become: true
+
+  vars:
+    node_exporter_version: "1.8.2"
+    node_exporter_user: "node_exporter"
+    node_exporter_port: 9100
+    node_exporter_arch: "linux-amd64"
+    node_exporter_bin: "/usr/local/bin/node_exporter"
+    # Bind to all interfaces: Prometheus reaches these nodes over Tailscale,
+    # and the tailnet address is not always up when the unit starts.
+    # Exposure is limited by the firewall rules below, not by the bind address.
+    node_exporter_listen: "0.0.0.0:9100"
+    # Collectors beyond the defaults. hwmon/thermal_zone provide temperature;
+    # systemd provides per-unit state for the service health panels.
+    node_exporter_collectors:
+      - "--collector.systemd"
+      - "--collector.processes"
+
+  tasks:
+    - name: Ensure required packages are present
+      ansible.builtin.apt:
+        name:
+          - lm-sensors      # populates hwmon so temperature metrics appear
+          - curl
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create node_exporter system user
+      ansible.builtin.user:
+        name: "{{ node_exporter_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        state: present
+
+    - name: Check installed node_exporter version
+      ansible.builtin.command: "{{ node_exporter_bin }} --version"
+      register: ne_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install node_exporter
+      when: node_exporter_version not in (ne_installed.stderr | default('') + ne_installed.stdout | default(''))
+      block:
+        - name: Download node_exporter tarball
+          ansible.builtin.get_url:
+            url: >-
+              https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.{{ node_exporter_arch }}.tar.gz
+            dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+            mode: "0644"
+
+        - name: Unpack node_exporter
+          ansible.builtin.unarchive:
+            src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+            dest: /tmp
+            remote_src: true
+
+        - name: Install node_exporter binary
+          ansible.builtin.copy:
+            src: "/tmp/node_exporter-{{ node_exporter_version }}.{{ node_exporter_arch }}/node_exporter"
+            dest: "{{ node_exporter_bin }}"
+            owner: root
+            group: root
+            mode: "0755"
+            remote_src: true
+          notify: Restart node_exporter
+
+        - name: Clean up temporary files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+            - "/tmp/node_exporter-{{ node_exporter_version }}.{{ node_exporter_arch }}"
+
+    - name: Install node_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          Documentation=https://github.com/prometheus/node_exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User={{ node_exporter_user }}
+          Group={{ node_exporter_user }}
+          Type=simple
+          ExecStart={{ node_exporter_bin }} \
+            --web.listen-address={{ node_exporter_listen }} \
+            {{ node_exporter_collectors | join(' \\\n            ') }}
+          Restart=always
+          RestartSec=5
+          # Hardening: this service only needs to read /proc and /sys.
+          NoNewPrivileges=true
+          ProtectHome=true
+          ProtectSystem=strict
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart node_exporter
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow Prometheus to scrape node_exporter over the tailnet
+      # Only applied when ufw is actually in use; skipped otherwise.
+      community.general.ufw:
+        rule: allow
+        port: "{{ node_exporter_port }}"
+        proto: tcp
+        from_ip: "{{ item }}"
+      loop:
+        - "100.0.0.0/8"        # Tailscale CGNAT range
+        - "192.168.68.0/24"    # LAN
+      failed_when: false
+      changed_when: false
+
+    - name: Verify node_exporter responds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+        return_content: false
+        status_code: 200
+      register: ne_health
+      retries: 5
+      delay: 3
+      until: ne_health is succeeded
+
+  handlers:
+    - name: Restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+        daemon_reload: true

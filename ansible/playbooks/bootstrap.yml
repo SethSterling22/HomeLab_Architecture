@@ -1,8 +1,9 @@
 ---
 # ansible/playbooks/bootstrap.yml
-# Base setup for all Debian nodes (except Aery, which is a Synology NAS).
+# Base setup for all Debian nodes. Aery is included now that it was rebuilt
+# from Synology DSM into a plain Debian node running Nextcloud.
 - name: Bootstrap Debian nodes
-  hosts: k3s_master:k3s_workers:compose_brain
+  hosts: k3s_master:k3s_workers:compose_brain:always_on
   become: true
   gather_facts: true
 

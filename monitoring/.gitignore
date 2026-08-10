@@ -1,0 +1,8 @@
+.env
+.env.local
+.env.*.local
+
+# SSH keys, kubeconfig and known_hosts for the Control API.
+# These grant power-off access to the fleet — never commit them.
+secrets/
+!secrets/.gitkeep

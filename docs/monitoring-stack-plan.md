@@ -19,7 +19,9 @@ across every HomeLab node. This document is a **plan**, not an implementation.
 | Metrics/visualization stack | **Grafana + Prometheus** |
 | Energy measurement | **Software estimation** (no metering hardware, for now) |
 | Power on/off control | **Inside Grafana** where possible; a custom panel only for gaps |
-| Coverage | **All nodes**, including **Aery** (Synology NAS) |
+| Coverage | **All nodes** — all are Debian-based now, including **Aery** |
+| Cost currency | **USD**, tariff editable at runtime (Puerto Rico rates move often) |
+| Exporter install | **Ansible** (`ansible/playbooks/monitoring.yml`) |
 | Deployment | **Ocra, via Docker Compose** (24/7, independent of the k3s cluster) |
 
 ### Why Ocra + Docker (not k3s) for the monitoring server
@@ -58,10 +60,10 @@ even when Sadida-hosted workloads or the on-demand nodes are down. The k3s
 | --- | --- | --- | --- |
 | Sadida | Proxmox (Debian) | `node_exporter`, `process-exporter`, **nvidia GPU exporter** | GPU exporter gives **real watts** from `nvidia-smi` — the one hard power number we get for free. |
 | Ocra | Debian | `node_exporter`, `process-exporter` | Also hosts the monitoring server itself. |
+| Aery | Debian | `node_exporter`, `process-exporter` | 24/7 Nextcloud + storage node. **Rebuilt from Synology DSM to plain Debian**, so it now takes the same `node_exporter` as every other node — no SNMP special case, and its disks/temps come through the standard collectors. |
 | Sram | Debian | `node_exporter`, `process-exporter` | 24/7 worker. |
 | Xelor | Debian | `node_exporter`, `process-exporter` | On-demand; Prometheus will mark it `down` when asleep (this itself feeds uptime/availability stats). |
 | Sacro | Debian | `node_exporter`, `process-exporter` | On-demand, same as Xelor. |
-| Aery | Synology DSM | **SNMP** (DSM built-in agent) scraped by `snmp_exporter` | DSM is locked down — no `node_exporter`. SNMP exposes temps, disk health, RAID, CPU, fan speed. **It does NOT expose watts.** |
 
 Metric coverage this gives you:
 
@@ -99,9 +101,11 @@ is trustworthy:
 - **RAPL / `scaphandre`** on Intel/AMD reports **CPU-package energy only** — not
   RAM, disks, fans, or PSU conversion losses. On a whole machine that can miss
   30–50% of real draw.
-- **Aery (Synology)** cannot run `scaphandre`; SNMP gives no watts. Its energy
-  can only be a static/model estimate.
 - The **GPU (RTX 3050)** is the exception: `nvidia-smi` reports real watts.
+- **Aery** now runs Debian, so it is no longer a black box — but it is still a
+  storage node whose draw is dominated by **spinning disks**, which CPU
+  utilization does not predict well. Expect its estimate to be the least
+  accurate of the fleet until calibrated.
 
 ### Proposed model
 
@@ -120,8 +124,9 @@ P_node(t) = P_idle + (P_max − P_idle) × utilization(t)   [+ P_gpu_real(t) on 
 Prometheus **recording rules** turn `P_node(t)` into:
 
 - **kWh** per node (integrate watts over time).
-- **Cost** = kWh × tariff. The tariff is a **Grafana dashboard variable** so you
-  can edit €/kWh (or local currency) without redeploying.
+- **Cost** = kWh × tariff, in **USD**. The tariff is a **Grafana textbox
+  variable** (`$rate_usd_kwh`), editable straight from the dashboard header —
+  Puerto Rico's LUMA rate moves often, so it is never baked into the config.
 - **Efficiency** metrics: kWh/day per node, **kWh per 1k requests served**,
   watts per active CPU-core-hour, and a lab-wide cost/day and cost/month.
 
@@ -181,25 +186,28 @@ gap remains after Phase 4.
 
 | Phase | Deliverable | Depends on |
 | --- | --- | --- |
-| **0** | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all Linux nodes; base CPU/RAM/temp/net dashboard. | — |
+| **0** ✅ | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all nodes via Ansible; base CPU/RAM/temp/net dashboard. | — |
+| **4** ✅ | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | 0 |
 | **1** | `process-exporter` (top processes) + nvidia GPU exporter on Sadida (real GPU watts). | 0 |
-| **2** | Synology SNMP enabled on Aery + `snmp_exporter` + Aery dashboard. | 0 |
-| **3** | Power model + recording rules + **energy/cost/efficiency dashboard** with editable tariff variable. | 1, 2 |
-| **4** | Control API on Ocra wrapping `scripts/wol/*` + Grafana Button Panel for wake/shutdown/status. | 0 |
+| **3** | Refined power model + **energy/cost/efficiency dashboard**. A first-pass model with an editable USD tariff already ships in Phase 0. | 1 |
 | **5** *(optional)* | One-time smart-plug calibration; custom panel for any remaining gaps. | 3, 4 |
 
-Phases 0/1/2/4 can proceed in parallel once Phase 0 is up. Phase 3 needs the
-exporters from 1 and 2 to be meaningful.
+Phase 2 (Synology SNMP) is **cancelled** — Aery was rebuilt as Debian, so it is
+covered by the standard `node_exporter` path in Phase 0.
+
+Phases 0 and 4 are implemented in `monitoring/`. Phases 1/3/5 remain open.
 
 ---
 
 ## Open items to confirm before building
 
-1. **Electricity tariff & currency** for the cost quotation (can start with a
-   placeholder editable in Grafana).
-2. **Enable SNMP on Aery** (Synology Control Panel → Terminal & SNMP) — required
-   for NAS metrics; SNMPv3 recommended.
+1. ~~Electricity tariff & currency~~ — resolved: USD, editable at runtime via the
+   `$rate_usd_kwh` dashboard variable.
+2. ~~Enable SNMP on Aery~~ — no longer applicable (Aery is Debian now).
 3. **GPU exporter choice** on Sadida (DCGM exporter vs. the lighter
-   `nvidia_gpu_exporter`).
+   `nvidia_gpu_exporter`) — Phase 1.
 4. Confirm the automation agent will expose Hermes `/metrics` and enable
    `N8N_METRICS` so request counts can be scraped.
+5. **Per-node `P_idle` / `P_max` constants** currently use documented estimates
+   in `monitoring/prometheus/rules/power-model.yml`. Calibrate with a metering
+   plug when convenient (Phase 5).

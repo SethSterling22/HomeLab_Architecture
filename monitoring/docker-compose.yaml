@@ -1,0 +1,109 @@
+# monitoring/docker-compose.yaml
+#
+# Monitoring and control stack. Runs on Ocra, which is always on, so the
+# dashboard (and the "wake" button) stay available even when the k3s cluster
+# or the on-demand nodes are down.
+#
+# Deliberately kept separate from the automation stack's compose file
+# (Productivity_Tools/n8n/docker-compose.yaml). They have different owners and
+# different failure domains: a restart here must never take n8n down.
+#
+#   docker compose up -d --build
+#
+# Note on networking: control-api uses host networking because Wake-on-LAN
+# magic packets are UDP broadcasts to 192.168.68.255. A bridged container
+# cannot broadcast onto the LAN segment, so WOL would silently fail.
+
+name: homelab-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: homelab_prometheus
+    restart: unless-stopped
+    user: "nobody"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      # 1 year of retention: energy cost statistics are only interesting
+      # when you can compare month over month.
+      - "--storage.tsdb.retention.time=365d"
+      - "--storage.tsdb.retention.size=20GB"
+      - "--web.enable-lifecycle"      # allows POST /-/reload after editing rules
+      - "--web.enable-admin-api"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: homelab_grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}"
+      # volkovlabs-form-panel renders the wake/shutdown buttons (with
+      # confirmation dialogs). yesoreyeram-infinity-datasource lets those
+      # buttons call the Control API through Grafana's server-side proxy, so
+      # the bearer token stays on the server and never reaches the browser.
+      GF_INSTALL_PLUGINS: "volkovlabs-form-panel,yesoreyeram-infinity-datasource"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # The Control API is called from the browser through Grafana's proxy,
+      # so Grafana must be allowed to reach it.
+      CONTROL_API_URL: "${CONTROL_API_URL:-http://ocra.stegosaurus-panga.ts.net:8090}"
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  control-api:
+    build:
+      context: ./control-api
+    image: homelab-control-api:local
+    container_name: homelab_control_api
+    restart: unless-stopped
+    # Host networking is REQUIRED: WOL magic packets are LAN broadcasts.
+    network_mode: host
+    environment:
+      CONTROL_API_PORT: "8090"
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
+      CONTROL_API_SCRIPTS_DIR: "/opt/homelab/scripts/wol"
+      # Uncomment to permit powering off a protected node. Read the warning
+      # in control-api/server.js before enabling any of these.
+      # CONTROL_API_ALLOW_SHUTDOWN_AERY: "false"
+      # CONTROL_API_ALLOW_SHUTDOWN_OCRA: "false"
+      KUBECONFIG: /home/control/.kube/config
+    volumes:
+      # The WOL scripts themselves, straight from this repository.
+      - ../scripts/wol:/opt/homelab/scripts/wol:ro
+      # SSH key used by shutdown.sh to reach the nodes. Use a DEDICATED key
+      # whose authorized_keys entry is restricted to the shutdown command.
+      - ${CONTROL_API_SSH_KEY:-./secrets/control_id_ed25519}:/home/control/.ssh/id_ed25519:ro
+      - ${CONTROL_API_KNOWN_HOSTS:-./secrets/known_hosts}:/home/control/.ssh/known_hosts:ro
+      # kubeconfig so shutdown.sh can drain nodes before powering them off.
+      - ${CONTROL_API_KUBECONFIG:-./secrets/kubeconfig}:/home/control/.kube/config:ro
+
+volumes:
+  prometheus_data:
+  grafana_data:
