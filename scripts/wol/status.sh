@@ -11,7 +11,7 @@ BOLD='\033[1m'
 # ── Nodes ─────────────────────────────────────────────────────────
 declare -A NODES=(
   [sadida]="192.168.68.10"
-  [aery]="192.168.1.13"
+  [aery]="192.168.68.190"
   [sram]="192.168.68.108"
   [ocra]="192.168.68.100"
   [xelor]="192.168.68.114"
@@ -19,7 +19,7 @@ declare -A NODES=(
 )
 declare -A NODE_ROLES=(
   [sadida]="Proxmox VE · k3s master · Ollama (local, GPU)"
-  [aery]="Debian 13 · Nextcloud · NFS (export pending re-setup)"
+  [aery]="k3s worker · Debian 13 · Nextcloud · NFS (export pending re-setup)"
   [sram]="k3s worker · dev"
   [ocra]="Brain 24/7 · Docker Compose (n8n + Hermes + postgres)"
   [xelor]="k3s worker · staging / CI (on-demand)"

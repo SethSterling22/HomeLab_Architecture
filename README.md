@@ -27,7 +27,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 | Node | Base OS | Role | Availability |
 |------|---------|------|--------------|
 | **Sadida** | Proxmox VE 8 (Debian 13 Trixie kernel) | Hypervisor · k3s control-plane · **Ollama (local host service, GPU RTX 3050)** | 24/7 |
-| **Aery** | Debian 13 Trixie (bare metal) | **Nextcloud** · file storage / NFS persistent volumes · Backup | 24/7 |
+| **Aery** | Debian 13 Trixie (bare metal) | **Nextcloud** · file storage / NFS persistent volumes · Backup; also a k3s worker | 24/7 |
 | **Sram** | Debian 13 Trixie (bare metal) | k3s worker · development environments (no GPU) | 24/7 |
 | **Ocra** | Debian 13 Trixie (bare metal) | **Brain 24/7 — Docker Compose: n8n + Hermes gateway + PostgreSQL + Tailscale**; also a k3s worker | 24/7 |
 | **Xelor** | Debian 13 Trixie (bare metal) | k3s worker on-demand · staging · CI/CD | On-demand |
@@ -38,7 +38,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 | Node | LAN IP | Role |
 |------|--------|------|
 | Sadida (Proxmox) | `192.168.68.10` | k3s control-plane · Ollama |
-| Aery (Debian) | `192.168.68.190` | Nextcloud · NFS server |
+| Aery (Debian) | `192.168.68.190` | Nextcloud · NFS server · k3s worker |
 | Ocra | `192.168.68.100` | AI brain (Docker Compose) · k3s worker |
 | Sram | `192.168.68.108` | k3s worker |
 | Xelor | `192.168.68.114` | k3s worker (on-demand) |
@@ -65,7 +65,7 @@ Internet
           │
           └── Gigabit Ethernet Switch
                  ├── Sadida     192.168.68.10   (Proxmox + k3s master + Ollama)
-                 ├── Aery       192.168.68.190  (Debian · Nextcloud · NFS)
+                 ├── Aery       192.168.68.190  (Debian · Nextcloud · NFS · k3s worker)
                  ├── Ocra       192.168.68.100  (AI brain — Docker Compose)
                  ├── Sram       192.168.68.108  (k3s worker)
                  ├── Xelor      192.168.68.114  (k3s worker, on-demand)
@@ -130,7 +130,7 @@ Grafana: `http://ocra.stegosaurus-panga.ts.net:3000` → folder **HomeLab**.
 graph TB
     subgraph always_on["🟢 Always On"]
         SADIDA["🖥️ Sadida\nProxmox VE · k3s master\nOllama (local, GPU)\n192.168.68.10"]
-        AERY["💾 Aery\nDebian 13 · Nextcloud · NFS\n192.168.68.190"]
+        AERY["💾 Aery\nDebian 13 · Nextcloud · NFS · k3s worker\n192.168.68.190"]
     end
 
     subgraph workers_24["🔵 Nodes 24/7"]
@@ -150,6 +150,7 @@ graph TB
 
     OCRA -->|Ollama API :11434| SADIDA
     SADIDA -->|k3s API| SRAM
+    SADIDA -->|k3s API| AERY
     SADIDA -.->|on-demand| XELOR
     SADIDA -.->|on-demand| SACRO
 
