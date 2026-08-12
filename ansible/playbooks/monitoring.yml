@@ -354,14 +354,18 @@
             mode: "0644"
 
         - name: Unpack nvidia_gpu_exporter
+          # Unlike node_exporter/process-exporter, this tarball has NO
+          # wrapping directory — it extracts nvidia_gpu_exporter and LICENSE
+          # straight into dest. Extract into /tmp directly (already exists);
+          # a per-version subdir here would need to be created first.
           ansible.builtin.unarchive:
             src: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}.tar.gz"
-            dest: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}"
+            dest: /tmp
             remote_src: true
 
         - name: Install nvidia_gpu_exporter binary
           ansible.builtin.copy:
-            src: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}/nvidia_gpu_exporter"
+            src: "/tmp/nvidia_gpu_exporter"
             dest: "{{ nvidia_gpu_exporter_bin }}"
             owner: root
             group: root
@@ -375,7 +379,8 @@
             state: absent
           loop:
             - "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}.tar.gz"
-            - "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}"
+            - "/tmp/nvidia_gpu_exporter"
+            - "/tmp/LICENSE"
 
     - name: Install nvidia_gpu_exporter systemd unit
       ansible.builtin.copy:
