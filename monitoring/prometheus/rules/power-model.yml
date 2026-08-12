@@ -132,14 +132,20 @@ groups:
             )
 
       # Total power = modelled platform power + REAL measured GPU watts.
-      # The `or ... * 0` branch is a graceful fallback: until the nvidia
-      # exporter is deployed (Phase 2), every node contributes 0 GPU watts
+      # nvidia_gpu_exporter (Phase 2, Sadida only) exposes
+      # nvidia_smi_power_draw_watts{uuid="..."} — labeled by GPU uuid, not
+      # node. The `node` label is attached automatically by Prometheus at
+      # scrape time (see the static_configs labels on the
+      # nvidia-gpu-exporter job in prometheus.yml), so summing by (node)
+      # here just works with no extra join.
+      # The `or ... * 0` branch is a graceful fallback for every OTHER node,
+      # which has no GPU exporter at all: they contribute 0 GPU watts
       # instead of dropping out of the series entirely.
       - record: node:power_watts:total
         expr: |
           node:power_watts:estimated
           + on (node) (
-              sum by (node) (nvidia_gpu_power_draw_watts)
+              sum by (node) (nvidia_smi_power_draw_watts)
               or
               (node:power_watts:estimated * 0)
             )

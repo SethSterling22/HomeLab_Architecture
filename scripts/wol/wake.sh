@@ -30,7 +30,7 @@ declare -A NODE_MACS=(
 declare -A NODE_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
-  [sacro]="100.123.227.47"
+  [sacro]="100.127.196.32"
   [ocra]="192.168.68.100"
 )
 declare -A NODE_TAGS=(

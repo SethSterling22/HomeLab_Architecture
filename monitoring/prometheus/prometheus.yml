@@ -72,6 +72,53 @@ scrape_configs:
         target_label: instance
         replacement: "${1}"
 
+  # ── Fleet: per-process visibility (Phase 2) ────────────────────
+  # process-exporter answers "what is running", which node_exporter cannot.
+  # Same target set as the `nodes` job above, different port.
+  - job_name: process-exporter
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["sadida.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: sadida
+      - targets: ["ocra.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: ocra
+      - targets: ["aery.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: aery
+      - targets: ["sram.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: sram
+      - targets: ["xelor.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: xelor
+      - targets: ["sacro.stegosaurus-panga.ts.net:9256"]
+        labels:
+          node: sacro
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+)(:[0-9]+)?"
+        target_label: instance
+        replacement: "${1}"
+
+  # ── Sadida: real GPU watts (Phase 2) ────────────────────────────
+  # nvidia_gpu_exporter labels its own series by GPU `uuid`, not `node`.
+  # The `node: sadida` label below is attached by Prometheus at scrape time
+  # (static_configs labels apply to every series pulled from this target),
+  # so no extra join/relabel is needed for power-model.yml to pick it up.
+  - job_name: nvidia-gpu-exporter
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["sadida.stegosaurus-panga.ts.net:9835"]
+        labels:
+          node: sadida
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+)(:[0-9]+)?"
+        target_label: instance
+        replacement: "${1}"
+
   # ── Control API (also exposes its own health) ──────────────────
   # control-api runs with network_mode: host (required for WOL broadcast),
   # so it is NOT on the same Docker bridge network as Prometheus — the

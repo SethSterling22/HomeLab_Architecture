@@ -157,3 +157,286 @@
         name: node_exporter
         state: restarted
         daemon_reload: true
+
+# ── Phase 2: per-process visibility ──────────────────────────────────
+# process-exporter answers "what is actually running" — node_exporter only
+# gives system-wide totals. Installed on every monitored node, same tarball
+# pattern as node_exporter above.
+- name: Install process-exporter on all monitored nodes
+  hosts: monitored
+  become: true
+
+  vars:
+    process_exporter_version: "0.8.7"
+    process_exporter_arch: "linux-amd64"
+    process_exporter_bin: "/usr/local/bin/process-exporter"
+    process_exporter_config_dir: "/etc/process-exporter"
+    process_exporter_port: 9256
+    process_exporter_listen: "0.0.0.0:9256"
+
+  tasks:
+    - name: Check installed process-exporter version
+      ansible.builtin.command: "{{ process_exporter_bin }} --version"
+      register: pe_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install process-exporter
+      when: process_exporter_version not in (pe_installed.stderr | default('') + pe_installed.stdout | default(''))
+      block:
+        - name: Download process-exporter tarball
+          ansible.builtin.get_url:
+            url: >-
+              https://github.com/ncabatoff/process-exporter/releases/download/v{{ process_exporter_version }}/process-exporter-{{ process_exporter_version }}.{{ process_exporter_arch }}.tar.gz
+            dest: "/tmp/process-exporter-{{ process_exporter_version }}.tar.gz"
+            mode: "0644"
+
+        - name: Unpack process-exporter
+          ansible.builtin.unarchive:
+            src: "/tmp/process-exporter-{{ process_exporter_version }}.tar.gz"
+            dest: /tmp
+            remote_src: true
+
+        - name: Install process-exporter binary
+          ansible.builtin.copy:
+            src: "/tmp/process-exporter-{{ process_exporter_version }}.{{ process_exporter_arch }}/process-exporter"
+            dest: "{{ process_exporter_bin }}"
+            owner: root
+            group: root
+            mode: "0755"
+            remote_src: true
+          notify: Restart process-exporter
+
+        - name: Clean up temporary files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/tmp/process-exporter-{{ process_exporter_version }}.tar.gz"
+            - "/tmp/process-exporter-{{ process_exporter_version }}.{{ process_exporter_arch }}"
+
+    - name: Create process-exporter config directory
+      ansible.builtin.file:
+        path: "{{ process_exporter_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install process-exporter config (catch-all — one series per process name)
+      ansible.builtin.copy:
+        dest: "{{ process_exporter_config_dir }}/config.yml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          process_names:
+            - name: "{{ '{{' }}.Comm{{ '}}' }}"
+              cmdline:
+              - '.+'
+      notify: Restart process-exporter
+
+    - name: Install process-exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/process-exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus Process Exporter
+          Documentation=https://github.com/ncabatoff/process-exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          # Reading /proc/[pid]/smaps for OTHER users' processes requires root
+          # (gather-smaps defaults to true, and this exporter is meant to see
+          # every process on the box, not just its own user's). Hardened below
+          # with the same filesystem protections as node_exporter otherwise.
+          User=root
+          Group=root
+          Type=simple
+          ExecStart={{ process_exporter_bin }} -config.path {{ process_exporter_config_dir }}/config.yml -web.listen-address={{ process_exporter_listen }}
+          Restart=always
+          RestartSec=5
+          NoNewPrivileges=true
+          ProtectHome=true
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart process-exporter
+
+    - name: Enable and start process-exporter
+      ansible.builtin.systemd:
+        name: process-exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow Prometheus to scrape process-exporter over the tailnet
+      community.general.ufw:
+        rule: allow
+        port: "{{ process_exporter_port }}"
+        proto: tcp
+        from_ip: "{{ item }}"
+      loop:
+        - "100.0.0.0/8"
+        - "192.168.68.0/24"
+      failed_when: false
+      changed_when: false
+
+    - name: Verify process-exporter responds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ process_exporter_port }}/metrics"
+        return_content: false
+        status_code: 200
+      register: pe_health
+      retries: 5
+      delay: 3
+      until: pe_health is succeeded
+
+  handlers:
+    - name: Restart process-exporter
+      ansible.builtin.systemd:
+        name: process-exporter
+        state: restarted
+        daemon_reload: true
+
+# ── Phase 2: real GPU watts ───────────────────────────────────────────
+# nvidia_gpu_exporter wraps `nvidia-smi` and is the only REAL (not modelled)
+# power number anywhere in this stack. Sadida only — it is the sole node
+# with the RTX 3050. See monitoring/prometheus/rules/power-model.yml for how
+# this feeds node:power_watts:total.
+- name: Install nvidia_gpu_exporter on Sadida
+  hosts: sadida
+  become: true
+
+  vars:
+    nvidia_gpu_exporter_version: "1.4.1"
+    nvidia_gpu_exporter_arch: "linux_x86_64"
+    nvidia_gpu_exporter_bin: "/usr/local/bin/nvidia_gpu_exporter"
+    nvidia_gpu_exporter_port: 9835
+    nvidia_gpu_exporter_listen: "0.0.0.0:9835"
+    nvidia_gpu_exporter_user: "nvidia_gpu_exporter"
+
+  tasks:
+    - name: Confirm nvidia-smi is present (required by this exporter)
+      ansible.builtin.command: nvidia-smi --query-gpu=name --format=csv,noheader
+      register: nvsmi_check
+      changed_when: false
+
+    - name: Create nvidia_gpu_exporter system user with GPU device access
+      ansible.builtin.user:
+        name: "{{ nvidia_gpu_exporter_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        groups: "video,render"
+        append: true
+        state: present
+
+    - name: Check installed nvidia_gpu_exporter version
+      ansible.builtin.command: "{{ nvidia_gpu_exporter_bin }} --version"
+      register: ge_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Download and install nvidia_gpu_exporter
+      when: nvidia_gpu_exporter_version not in (ge_installed.stderr | default('') + ge_installed.stdout | default(''))
+      block:
+        - name: Download nvidia_gpu_exporter tarball
+          ansible.builtin.get_url:
+            url: >-
+              https://github.com/utkuozdemir/nvidia_gpu_exporter/releases/download/v{{ nvidia_gpu_exporter_version }}/nvidia_gpu_exporter_{{ nvidia_gpu_exporter_version }}_{{ nvidia_gpu_exporter_arch }}.tar.gz
+            dest: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}.tar.gz"
+            mode: "0644"
+
+        - name: Unpack nvidia_gpu_exporter
+          ansible.builtin.unarchive:
+            src: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}.tar.gz"
+            dest: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}"
+            remote_src: true
+
+        - name: Install nvidia_gpu_exporter binary
+          ansible.builtin.copy:
+            src: "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}/nvidia_gpu_exporter"
+            dest: "{{ nvidia_gpu_exporter_bin }}"
+            owner: root
+            group: root
+            mode: "0755"
+            remote_src: true
+          notify: Restart nvidia_gpu_exporter
+
+        - name: Clean up temporary files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}.tar.gz"
+            - "/tmp/nvidia_gpu_exporter-{{ nvidia_gpu_exporter_version }}"
+
+    - name: Install nvidia_gpu_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/nvidia_gpu_exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=NVIDIA GPU Exporter
+          Documentation=https://github.com/utkuozdemir/nvidia_gpu_exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User={{ nvidia_gpu_exporter_user }}
+          Group={{ nvidia_gpu_exporter_user }}
+          Type=simple
+          ExecStart={{ nvidia_gpu_exporter_bin }} --web.listen-address={{ nvidia_gpu_exporter_listen }}
+          Restart=always
+          RestartSec=5
+          NoNewPrivileges=true
+          ProtectHome=true
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart nvidia_gpu_exporter
+
+    - name: Enable and start nvidia_gpu_exporter
+      ansible.builtin.systemd:
+        name: nvidia_gpu_exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow Prometheus to scrape nvidia_gpu_exporter over the tailnet
+      community.general.ufw:
+        rule: allow
+        port: "{{ nvidia_gpu_exporter_port }}"
+        proto: tcp
+        from_ip: "{{ item }}"
+      loop:
+        - "100.0.0.0/8"
+        - "192.168.68.0/24"
+      failed_when: false
+      changed_when: false
+
+    - name: Verify nvidia_gpu_exporter responds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ nvidia_gpu_exporter_port }}/metrics"
+        return_content: false
+        status_code: 200
+      register: ge_health
+      retries: 5
+      delay: 3
+      until: ge_health is succeeded
+
+  handlers:
+    - name: Restart nvidia_gpu_exporter
+      ansible.builtin.systemd:
+        name: nvidia_gpu_exporter
+        state: restarted
+        daemon_reload: true

@@ -3,7 +3,7 @@
 Prometheus + Grafana + a small Control API, running on **Ocra**. Gives you one
 page to see the fleet's health and energy cost, and to power nodes on and off.
 
-Implements **Phases 0 and 1** of `docs/monitoring-stack-plan.md`.
+Implements **Phases 0, 1 and 2** of `docs/monitoring-stack-plan.md`.
 
 ## What you get
 
@@ -11,6 +11,8 @@ Implements **Phases 0 and 1** of `docs/monitoring-stack-plan.md`.
 | --- | --- |
 | **Status** | Online/offline badge per node (Xelor and Sacro read offline while asleep — that is the point) |
 | **Resources** | CPU, memory, temperature, availability over time |
+| **Processes** | Top processes by CPU and memory, per node (`process-exporter`) |
+| **GPU** | Real watts, utilization, temperature and memory on Sadida's RTX 3050 (`nvidia_gpu_exporter`) — the one non-modelled power number in the stack |
 | **Energy** | Estimated watts per node, kWh and **USD cost** over any time range, projected monthly cost |
 | **Control** | Wake / shut down buttons, with confirmation, wired to `scripts/wol/` |
 
@@ -84,9 +86,17 @@ ansible-playbook ansible/playbooks/monitoring.yml
 
 This installs `node_exporter` as a hardened systemd service on Sadida, Ocra,
 Aery, Sram, Xelor and Sacro, plus `lm-sensors` so temperature metrics appear.
+The same run also installs `process-exporter` (per-process CPU/memory) on all
+six nodes, and `nvidia_gpu_exporter` (real GPU watts) on Sadida only — both
+are Phase 2 and are already in this playbook, no separate command needed.
 
 > Aery used to be a Synology NAS and needed a separate SNMP path. Now that it
 > is Debian, it takes the same `node_exporter` as everything else.
+
+> `nvidia_gpu_exporter` requires `nvidia-smi` to already work on Sadida (it
+> wraps the CLI). Since Ollama already runs on Sadida with GPU access, this
+> should already be the case — the playbook fails fast with a clear error if
+> not.
 
 ### 2. Prepare Control API credentials (on Ocra)
 
@@ -232,10 +242,6 @@ monitoring/
   repo/agent. They need to expose `/metrics` on Hermes and set
   `N8N_METRICS=true`; the scrape jobs are already written and commented out in
   `prometheus/prometheus.yml`, ready to enable.
-- **No GPU watts yet.** The model has a slot for real `nvidia-smi` watts on
-  Sadida and falls back to zero until the exporter is deployed (Phase 2).
-- **No per-process metrics yet.** `process-exporter` is Phase 2; today you get
-  node-level CPU/RAM, not a per-process breakdown.
 - **Control button panel.** The wake/shutdown buttons use the Business Forms
   panel (`volkovlabs-form-panel`). The API endpoints and safety logic are tested
   end-to-end, but the panel's own option schema changes between plugin versions

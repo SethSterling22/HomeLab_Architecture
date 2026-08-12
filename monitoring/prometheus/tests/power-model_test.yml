@@ -13,7 +13,8 @@
 #   ocra   idle 15, max 65  -> at 50% utilization: 15 + (65-15)*0.5 = 40 W
 #   sram   idle 20, max 90  -> at  0% utilization: 20 W
 #   xelor  idle 20, max 95  -> at 100% utilization: 95 W
-#   fleet total: 40 + 20 + 95 = 155 W
+#   sadida idle 55, max 180 -> at  0% utilization: 55 W, + 15 W real GPU = 70 W
+#   fleet total: 40 + 20 + 95 + 70 = 225 W
 
 rule_files:
   - ../rules/power-model.yml
@@ -32,6 +33,16 @@ tests:
       # Idle never climbs => 0% idle => 100% busy.
       - series: 'node_cpu_seconds_total{node="xelor",cpu="0",mode="idle"}'
         values: "0+0x200"
+      # Sadida idle (0% CPU utilization) so its estimated platform watts are
+      # just the idle constant (55), isolating the GPU-watts join below.
+      - series: 'node_cpu_seconds_total{node="sadida",cpu="0",mode="idle"}'
+        values: "0+15x200"
+      # Real GPU watts from nvidia_gpu_exporter. Labeled by uuid, with `node`
+      # attached by Prometheus's scrape-time static_configs labels (see the
+      # nvidia-gpu-exporter job in prometheus.yml) — this is what
+      # node:power_watts:total must pick up via `sum by (node)`.
+      - series: 'nvidia_smi_power_draw_watts{node="sadida",uuid="gpu-0"}'
+        values: "15x200"
       - series: 'up{job="nodes",node="ocra",instance="ocra"}'
         values: "1x200"
 
@@ -45,6 +56,8 @@ tests:
             value: 0
           - labels: '{__name__="node:cpu_utilization:ratio", node="xelor"}'
             value: 1
+          - labels: '{__name__="node:cpu_utilization:ratio", node="sadida"}'
+            value: 0
 
       # Confirms the constants join correctly onto the utilization series.
       - expr: node:power_watts:estimated
@@ -56,9 +69,16 @@ tests:
             value: 20
           - labels: '{__name__="node:power_watts:estimated", node="xelor"}'
             value: 95
+          - labels: '{__name__="node:power_watts:estimated", node="sadida"}'
+            value: 55
 
-      # With no nvidia exporter present, the `or ... * 0` fallback must keep
-      # every node in the series rather than dropping it.
+      # For nodes with no nvidia exporter, the `or ... * 0` fallback must keep
+      # them in the series rather than dropping them. For sadida, the real
+      # nvidia_smi_power_draw_watts series must be summed in on top of the
+      # estimated platform watts — this is the regression test for the bug
+      # where this rule referenced the wrong metric name
+      # (nvidia_gpu_power_draw_watts, which the real exporter never emits)
+      # and silently contributed 0 GPU watts forever.
       - expr: node:power_watts:total
         eval_time: 10m
         exp_samples:
@@ -68,12 +88,14 @@ tests:
             value: 20
           - labels: '{__name__="node:power_watts:total", node="xelor"}'
             value: 95
+          - labels: '{__name__="node:power_watts:total", node="sadida"}'
+            value: 70
 
       - expr: lab:power_watts:total
         eval_time: 10m
         exp_samples:
           - labels: '{__name__="lab:power_watts:total"}'
-            value: 155
+            value: 225
 
       - expr: node:up:status
         eval_time: 10m

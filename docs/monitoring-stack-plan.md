@@ -42,13 +42,11 @@ even when Sadida-hosted workloads or the on-demand nodes are down. The k3s
             │        │      │                                                              │
  each node  │        │      └────►  Grafana  ──(Button Panel plugin)──►  Control API       │
  exporters ─┤        │                                              (wraps scripts/wol/*)  │
-            │        │  snmp_exporter (for Aery)                                           │
             │        └─────────────────────────────────────────────────────────────────────┘
             │
    ┌────────┴───────────────────────────────────────────────┐
    │ node_exporter + process-exporter on every Linux node    │
    │ nvidia GPU exporter on Sadida (real GPU watts)          │
-   │ Synology SNMP agent on Aery (temps, disks, CPU, fans)   │
    └─────────────────────────────────────────────────────────┘
 ```
 
@@ -68,8 +66,8 @@ even when Sadida-hosted workloads or the on-demand nodes are down. The k3s
 Metric coverage this gives you:
 
 - **CPU / RAM / load / network / disk I/O** — `node_exporter`.
-- **Temperature** — `node_exporter` hwmon collector (lm-sensors) on Linux;
-  SNMP temperature OIDs on Aery; GPU temp from the nvidia exporter.
+- **Temperature** — `node_exporter` hwmon collector (lm-sensors) on every
+  node; GPU temp from the nvidia exporter on Sadida.
 - **Top processes (CPU/mem)** — `process-exporter` (plain `node_exporter` does
   not do per-process; this is the piece that answers "what's running").
 - **Requests** — see the cross-repo note below.
@@ -190,7 +188,7 @@ variable covers the tariff side of the cost calculator.
 | --- | --- | --- | --- |
 | **0** | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all nodes via Ansible; base CPU/RAM/temperature/availability dashboard; first-pass power model with an editable USD tariff. | ✅ Done — `monitoring/` | — |
 | **1** | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | ✅ Done — `monitoring/control-api/` | 0 |
-| **2** | `process-exporter` (per-process CPU/memory — "what is running") + nvidia GPU exporter on Sadida (**real** GPU watts, the only measured power in the model). | Open | 0 |
+| **2** | `process-exporter` (per-process CPU/memory — "what is running") + nvidia GPU exporter on Sadida (**real** GPU watts, the only measured power in the model). | ✅ Done — `ansible/playbooks/monitoring.yml`, `monitoring/prometheus/prometheus.yml`, dashboard panels | 0 |
 | **3** | **Calibration.** One metering smart plug, moved node to node, to replace the guessed `P_idle`/`P_max` constants with measured ones. | Open | 0 |
 | **4** | Refined power model (factor in disk and network I/O, which matter for Aery) + efficiency dashboard: kWh per 1k requests, watts per active core-hour, month-over-month comparison. | Open | 2, 3 |
 
@@ -214,8 +212,9 @@ separate dashboard, no special case anywhere in the config.
 1. ~~Electricity tariff & currency~~ — resolved: USD, editable at runtime via the
    `$rate_usd_kwh` dashboard variable.
 2. ~~Enable SNMP on Aery~~ — no longer applicable (Aery is Debian now).
-3. **GPU exporter choice** on Sadida: DCGM exporter vs. the lighter
-   `nvidia_gpu_exporter` — Phase 2.
+3. ~~GPU exporter choice on Sadida~~ — resolved: `nvidia_gpu_exporter`
+   (lighter than DCGM, sufficient for a single consumer GPU). Deployed in
+   Phase 2.
 4. Confirm the automation agent will expose Hermes `/metrics` and enable
    `N8N_METRICS` so request counts can be scraped. The scrape jobs are already
    written and commented out in `monitoring/prometheus/prometheus.yml`.

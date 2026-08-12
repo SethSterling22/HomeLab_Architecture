@@ -354,11 +354,272 @@
       }
     },
     {
+      "id": 30,
+      "type": "row",
+      "title": "Processes (per node)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "table",
+      "title": "Top processes by CPU",
+      "description": "Requires process-exporter (Phase 2). Grouped by process name across the selected node(s); CPU is a 5m average.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "topk(15, sum by (node, groupname) (rate(namedprocess_namegroup_cpu_seconds_total{node=~\"$node\"}[5m])) * 100)",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true },
+            "renameByName": {
+              "node": "Node",
+              "groupname": "Process",
+              "Value": "CPU %"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "CPU %" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "orange", "value": 50 },
+                    { "color": "red", "value": 90 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "CPU %", "desc": true }]
+      }
+    },
+    {
+      "id": 32,
+      "type": "table",
+      "title": "Top processes by memory",
+      "description": "Requires process-exporter (Phase 2). Resident memory, grouped by process name.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 25 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "topk(15, namedprocess_namegroup_memory_bytes{node=~\"$node\", memtype=\"resident\"})",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true, "memtype": true },
+            "renameByName": {
+              "node": "Node",
+              "groupname": "Process",
+              "Value": "Memory"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Memory", "desc": true }]
+      }
+    },
+    {
+      "id": 33,
+      "type": "row",
+      "title": "Sadida GPU (RTX 3050 — real watts, not modelled)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "panels": []
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "GPU power draw",
+      "description": "Real measured watts from nvidia-smi (Phase 2). This is the one non-modelled number feeding node:power_watts:total for Sadida.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 35 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(nvidia_smi_power_draw_watts)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "watt", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "GPU utilization",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 35 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "avg(nvidia_smi_utilization_gpu_ratio) * 100",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 0, "min": 0, "max": 100 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "GPU temperature",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 35 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "avg(nvidia_smi_temperature_gpu)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "GPU memory used",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 35 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(nvidia_smi_memory_used_bytes) / sum(nvidia_smi_memory_total_bytes) * 100",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 0, "min": 0, "max": 100 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "GPU power draw over time",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "sum(nvidia_smi_power_draw_watts)",
+          "legendFormat": "GPU watts (real)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      }
+    },
+    {
       "id": 20,
       "type": "row",
       "title": "Energy & cost (estimated — see panel descriptions)",
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 },
       "panels": []
     },
     {
@@ -367,7 +628,7 @@
       "title": "Fleet draw right now",
       "description": "MODELLED, not measured: P_idle + (P_max - P_idle) x CPU utilization, plus real GPU watts on Sadida once the nvidia exporter is deployed. Expect +/-20-40% until calibrated.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 25 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 50 },
       "targets": [
         {
           "refId": "A",
@@ -404,7 +665,7 @@
       "title": "Energy in selected range",
       "description": "Average modelled power across the dashboard time range, integrated over that range.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 25 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 50 },
       "targets": [
         {
           "refId": "A",
@@ -437,7 +698,7 @@
       "title": "Cost in selected range",
       "description": "Energy in range x the rate in the 'Electricity rate' field at the top of the dashboard.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 25 },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 50 },
       "targets": [
         {
           "refId": "A",
@@ -470,7 +731,7 @@
       "title": "Projected monthly cost",
       "description": "Extrapolates the last 24 hours to a 730-hour month. This is a projection from recent behaviour, not a measured bill.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 25 },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 50 },
       "targets": [
         {
           "refId": "A",
@@ -506,7 +767,7 @@
       "type": "timeseries",
       "title": "Estimated power per node",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 31 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 56 },
       "targets": [
         {
           "refId": "A",
@@ -539,7 +800,7 @@
       "title": "Cost breakdown by node (selected range)",
       "description": "Per-node energy and cost over the dashboard time range. Use this for the running-cost quotation; remember the figures are modelled.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 31 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 56 },
       "targets": [
         {
           "refId": "watts",
