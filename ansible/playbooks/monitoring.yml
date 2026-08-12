@@ -108,9 +108,7 @@
           User={{ node_exporter_user }}
           Group={{ node_exporter_user }}
           Type=simple
-          ExecStart={{ node_exporter_bin }} \
-            --web.listen-address={{ node_exporter_listen }} \
-            {{ node_exporter_collectors | join(' \\\n            ') }}
+          ExecStart={{ node_exporter_bin }} --web.listen-address={{ node_exporter_listen }} {{ node_exporter_collectors | join(' ') }}
           Restart=always
           RestartSec=5
           # Hardening: this service only needs to read /proc and /sys.

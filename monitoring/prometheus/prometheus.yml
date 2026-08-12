@@ -73,9 +73,13 @@ scrape_configs:
         replacement: "${1}"
 
   # ── Control API (also exposes its own health) ──────────────────
+  # control-api runs with network_mode: host (required for WOL broadcast),
+  # so it is NOT on the same Docker bridge network as Prometheus — the
+  # service name "control-api" has no DNS entry to resolve. Reach it via
+  # Ocra's own Tailscale address instead, same as every other target here.
   - job_name: control-api
     static_configs:
-      - targets: ["control-api:8090"]
+      - targets: ["ocra.stegosaurus-panga.ts.net:8090"]
         labels:
           node: ocra
 
