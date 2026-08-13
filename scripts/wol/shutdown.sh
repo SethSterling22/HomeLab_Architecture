@@ -130,16 +130,22 @@ shutdown_node() {
   fi
 
   log "Powering off ${BLUE}${node}${NC} (${ip})..."
-    if [[ "$node" == "sacro" ]]; then # Exemption for Sacro (BIOS setting)
+    if [[ "$node" == "sacro" || "$node" == "aery" ]]; then
+      # Exemption for hardware that does not reliably support WOL from a
+      # full ACPI poweroff (S5) — confirmed on Sacro, and now also on Aery
+      # (an Acer Aspire E1-422 laptop): `ethtool` doesn't even report
+      # Supports/Wake-on lines for its NIC and refuses `ethtool -s wol g`
+      # with "Operation not supported", and a real shutdown+WOL round-trip
+      # failed to wake it, despite "Wake on LAN" being enabled in the BIOS.
+      # This is a common laptop limitation: the BIOS toggle covers waking
+      # from suspend (S3), not a fully powered-off board (S5), because
+      # consumer/laptop boards often don't route standby power to the NIC
+      # when fully off the way a desktop ATX PSU does. `systemctl suspend`
+      # keeps enough of the board powered for the NIC to still catch a
+      # magic packet.
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo systemctl suspend"
     else
-      # Aery uses this same full-poweroff path by default. Its Wake-on-LAN
-      # behavior from a full shutdown has NOT been verified yet (see
-      # monitoring/README.md, "Idle auto-shutdown" section, for the exact
-      # ethtool + round-trip test to run). If it turns out Aery's hardware
-      # only wakes reliably from suspend — the same issue Sacro had — add
-      # it to the exemption above rather than here.
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo shutdown -h now"
     fi
