@@ -8,9 +8,15 @@
 #   ./scripts/wol/shutdown.sh sacro
 #   ./scripts/wol/shutdown.sh sram
 #   ./scripts/wol/shutdown.sh ocra
+#   ./scripts/wol/shutdown.sh aery
 #   ./scripts/wol/shutdown.sh all
 #   ./scripts/wol/shutdown.sh all --skip-drain   # fast shutdown without draining
 #   ./scripts/wol/shutdown.sh xelor --yes        # non-interactive (used by the Control API)
+#
+# Note: "all" deliberately does NOT include aery (see ON_DEMAND/MASTER-style
+# exclusion below) — same reasoning as Ocra being excluded from "all": a
+# storage/Nextcloud node should never go down as a side effect of a blanket
+# sweep, only when explicitly named or when idle-shutdown decides to.
 
 set -euo pipefail
 
@@ -30,12 +36,17 @@ declare -A NODE_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
   [sacro]="100.123.227.47"
+  # MagicDNS hostname (not a raw Tailscale IP, unlike the others above):
+  # this repo has no recorded Tailscale IP for Aery. Swap in the real IP
+  # from `tailscale status` if you want it consistent with the rest.
+  [aery]="aery.stegosaurus-panga.ts.net"
 )
 declare -A NODE_USERS=(
   [ocra]="seth"
   [sram]="seth"
   [xelor]="seth"
   [sacro]="seth"
+  [aery]="seth"
 )
 # On-demand nodes (always drained before powering off)
 ON_DEMAND_NODES=(xelor sacro)
@@ -59,8 +70,14 @@ check_deps() {
 
 is_ondemand() {
   local node="$1"
-  for n in "${ON_DEMAND_NODES[@]}"; do
-    [[ "$n" == "$node" ]] && return 0
+  # Pre-existing bug fixed here: this loop used to reuse the bare name `n`,
+  # which is NOT function-local in bash unless declared so. That silently
+  # clobbered any caller's own `n` loop variable (e.g. usage()'s `for n in
+  # ocra sram xelor sacro aery`), corrupting its output. `local candidate`
+  # makes this function's loop variable actually local.
+  local candidate
+  for candidate in "${ON_DEMAND_NODES[@]}"; do
+    [[ "$candidate" == "$node" ]] && return 0
   done
   return 1
 }
@@ -117,6 +134,12 @@ shutdown_node() {
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo systemctl suspend"
     else
+      # Aery uses this same full-poweroff path by default. Its Wake-on-LAN
+      # behavior from a full shutdown has NOT been verified yet (see
+      # monitoring/README.md, "Idle auto-shutdown" section, for the exact
+      # ethtool + round-trip test to run). If it turns out Aery's hardware
+      # only wakes reliably from suspend — the same issue Sacro had — add
+      # it to the exemption above rather than here.
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo shutdown -h now"
     fi
@@ -141,9 +164,10 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all> [--skip-drain]"
   echo ""
   echo "  Available nodes:"
-  for n in ocra sram xelor sacro; do
+  for n in ocra sram xelor sacro aery; do
     local tag=""
     is_ondemand "$n" && tag=" ${YELLOW}(on-demand)${NC}"
+    [[ "$n" == "aery" ]] && tag=" ${YELLOW}(idle-managed; excluded from 'all')${NC}"
     printf "    ${BLUE}%-8s${NC} →  %s%b\n" "$n" "${NODE_IPS[$n]}" "$tag"
   done
   echo ""

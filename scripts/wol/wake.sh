@@ -7,6 +7,7 @@
 #   ./scripts/wol/wake.sh sacro
 #   ./scripts/wol/wake.sh sram
 #   ./scripts/wol/wake.sh ocra
+#   ./scripts/wol/wake.sh aery
 #   ./scripts/wol/wake.sh all
 
 set -euo pipefail
@@ -26,18 +27,28 @@ declare -A NODE_MACS=(
   [xelor]="88:ae:1d:6c:e4:06"
   [sacro]="68:f7:28:83:d6:77"
   [ocra]="40:49:0f:a7:c4:03"
+  # enp1s0f0 — the only wired interface that's actually up on Aery (wlp5s0
+  # is present but down/unused). Confirmed via `ip link show` on Aery itself.
+  [aery]="30:65:ec:1d:fe:f7"
 )
 declare -A NODE_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
   [sacro]="100.127.196.32"
   [ocra]="192.168.68.100"
+  # MagicDNS hostname rather than a raw Tailscale IP: this repo doesn't have
+  # Aery's Tailscale IP recorded, and the monitoring stack already proves
+  # this hostname resolves fine from Ocra (same box that runs this script
+  # via the Control API). If you'd rather pin a raw IP for consistency with
+  # the other entries, get it from `tailscale status` and swap it in.
+  [aery]="aery.stegosaurus-panga.ts.net"
 )
 declare -A NODE_TAGS=(
   [sram]="worker 24/7"
   [ocra]="worker 24/7"
   [xelor]="on-demand · staging"
   [sacro]="on-demand · observability"
+  [aery]="24/7 · Nextcloud (idle-managed)"
 )
 
 BROADCAST="192.168.68.255"
@@ -113,7 +124,7 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all>"
   echo ""
   echo "  Available nodes:"
-  for n in sram ocra xelor sacro; do
+  for n in sram ocra xelor sacro aery; do
     local mac="${NODE_MACS[$n]:-not configured}"
     printf "    ${BLUE}%-8s${NC}  %-18s  %-20s  %s\n" \
       "$n" "${NODE_IPS[$n]}" "$mac" "${NODE_TAGS[$n]}"
@@ -138,7 +149,7 @@ main() {
 
   if [[ "$target" == "all" ]]; then
     log "Waking all workers..."
-    for node in sram ocra xelor sacro; do
+    for node in sram ocra xelor sacro aery; do
       [[ -n "${NODE_MACS[$node]}" ]] && wake_node "$node" &
     done
     wait
