@@ -191,6 +191,33 @@ can't be smoothed away). See `monitoring/README.md`, section "Idle
 auto-shutdown", for the full safety model and the Aery-specific
 Wake-on-LAN verification required before enabling it there.
 
+### Wake-on-demand (autonomous, the other direction from idle auto-shutdown)
+
+Idle auto-shutdown answers "when should a node go to sleep with nobody
+watching?". Wake-on-demand answers the mirror question: "when a sleeping
+node is actually needed, how does it wake up without a human clicking the
+button?" Two small daemons, one per demand signal, because the fleet has two
+fundamentally different kinds of on-demand node:
+
+- **`monitoring/wake-proxy/`** — Aery runs a single HTTP service (Nextcloud),
+  so the demand signal is simply "a request arrived". wake-proxy sits in
+  front of it on Ocra: a raw TCP check decides if Aery is up, and if not it
+  fires a rate-limited wake call and serves a small auto-refreshing holding
+  page instead of leaving the request to just time out.
+- **`monitoring/k3s-autowake/`** — Sram, Xelor and Sacro are k3s workers with
+  no single HTTP entry point representing "someone wants this node". The
+  demand signal instead comes from Kubernetes itself: Pods stuck `Pending`
+  with a `PodScheduled` condition of `False`/`Unschedulable` mean the
+  scheduler already tried and failed to fit them in current capacity. When
+  that happens and at least one managed worker is asleep, it wakes one.
+
+Both are thin callers of the same Control API `/control/wake/:node` endpoint
+— neither talks to WOL or SSH directly, so waking gains no new attack surface
+beyond what already exists for the manual dashboard button. See
+`monitoring/README.md`, section "Wake-on-demand", for endpoints, config and
+the rollout notes (in particular: pointing Nextcloud clients at Ocra instead
+of Aery directly).
+
 ### What Grafana can't do cleanly → optional custom panel
 
 Start with Grafana + Button Panel. Add a small custom web panel only for gaps

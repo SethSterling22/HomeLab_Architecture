@@ -16,6 +16,8 @@ Implements **Phases 0, 1, 2 and 3** of `docs/monitoring-stack-plan.md`.
 | **Energy** | Estimated watts per node, kWh and **USD cost** over any time range, projected monthly cost |
 | **Grid power** | Real measured watts for the WHOLE fleet from a Shelly smart plug, compared live against the software model, plus outage detection (Phase 3) |
 | **Control** | Wake / shut down buttons, with confirmation, wired to `scripts/wol/` |
+| **Idle auto-shutdown** | Nodes go to sleep on their own after a configurable period of near-zero network traffic |
+| **Wake-on-demand** | Sleeping nodes wake themselves: a reverse proxy for Aery/Nextcloud, pod-pressure detection for the k3s workers — see "Wake-on-demand" below |
 
 The electricity rate is a **textbox at the top of the dashboard**
 (`$rate_usd_kwh`, default `0.24`). Change it and every cost panel recalculates
@@ -164,11 +166,15 @@ curl -s localhost:9090/-/healthy                          # Prometheus
 curl -s localhost:8090/health                             # Control API
 curl -s localhost:8091/metrics | grep shelly_status_ | head # Shelly exporter
 curl -s localhost:8092/health                                # idle-shutdown daemon
+curl -s localhost:8093/health                                # wake-proxy (public entry)
+curl -s localhost:8094/health                                # wake-proxy (admin/metrics)
+curl -s localhost:8095/health                                # k3s-autowake
 curl -s localhost:9090/api/v1/targets | grep -o '"job":"[^"]*"' | sort -u
 ```
 
 The last command should list `nodes`, `process-exporter`, `nvidia-gpu-exporter`,
-`control-api`, `prometheus`, `shelly-power` and `idle-shutdown`.
+`control-api`, `prometheus`, `shelly-power`, `idle-shutdown`, `wake-proxy` and
+`k3s-autowake`.
 
 Then open Grafana at `http://ocra.stegosaurus-panga.ts.net:3000` → folder
 **HomeLab** → dashboard **HomeLab — Nodes, Power & Control**.
@@ -312,6 +318,70 @@ managed list.
 
 ---
 
+## Wake-on-demand
+
+Idle auto-shutdown handles nodes going *to sleep* on their own. This is the
+other direction: nodes waking *themselves* back up when something actually
+needs them, no manual `wake.sh` or dashboard click required. Two daemons,
+because Aery and the k3s workers have genuinely different "someone wants
+this node" signals.
+
+### wake-proxy (Aery / Nextcloud)
+
+A reverse proxy on Ocra. **Point your Nextcloud clients at
+`ocra.stegosaurus-panga.ts.net:8093` instead of Aery directly.** On every
+request it does a raw TCP check of Aery; if Aery answers, the request is
+proxied straight through (Host header rewritten to Aery's own hostname, so
+Nextcloud's `trusted_domains` needs no change). If Aery does not answer, it
+fires a rate-limited wake call at the Control API and serves a small
+auto-refreshing "waking up" page — no request is ever held open for the full
+boot time.
+
+| Method | Endpoint | Port | Notes |
+| --- | --- | --- | --- |
+| any | `/*` | `8093` | Public entry point — this is what clients connect to |
+| `GET` | `:8094/health` | `8094` | Liveness |
+| `GET` | `:8094/status` | `8094` | Last reachability check, wake cooldown state, counters |
+| `GET` | `:8094/metrics` | `8094` | Prometheus counters (see the "Wake-on-demand" dashboard row) |
+
+Config lives in `.env`: `WAKE_PROXY_TARGET_HOST`, `WAKE_PROXY_TARGET_PORT`
+(defaults to Aery's Nextcloud on `8080`). WebSocket/Upgrade requests (e.g.
+Nextcloud's `notify_push`) are passed through raw once the backend is known
+to be up.
+
+### k3s-autowake (Sram / Xelor / Sacro)
+
+Unlike Aery, there is no single HTTP endpoint that means "someone wants a
+k3s worker". Instead, `k3s-autowake` polls the Kubernetes API for Pods stuck
+`Pending` with `PodScheduled: False, reason: Unschedulable` — the scheduler
+already tried and failed to fit them into current capacity. When that
+happens and at least one node in `K3S_AUTOWAKE_NODES` is not `Ready`, it
+wakes one of the sleeping ones (simplest useful behavior for 2-3 on-demand
+workers; it does not try to compute which pod would actually fit where).
+
+| Method | Endpoint | Port | Notes |
+| --- | --- | --- | --- |
+| `GET` | `/health` | `8095` | Liveness |
+| `GET` | `/status` | `8095` | Last pending-pod count, which managed nodes are asleep, counters |
+| `GET` | `/metrics` | `8095` | Prometheus counters |
+
+Config: `K3S_AUTOWAKE_NODES` (default `sram,xelor,sacro`),
+`K3S_AUTOWAKE_CHECK_INTERVAL_SECONDS` (default `30`),
+`K3S_AUTOWAKE_WAKE_COOLDOWN_MS` (default `180000` — long enough to cover a
+normal boot + k3s join, so a still-booting node doesn't get repeat wake
+calls). Reuses the same read-only kubeconfig mount as the Control API.
+
+### Why waking is safe by default (unlike shutdown)
+
+Neither daemon needed the multi-layer safety model idle-shutdown has,
+because **waking a node is not destructive** — worst case it wakes a node
+that turns out not to be needed after all, costing some electricity, never
+data loss or an unexpected outage. Both still get a cooldown per node purely
+to avoid hammering the Control API/WOL with redundant calls while a node is
+already mid-boot.
+
+---
+
 ## Tests
 
 The power model is unit-tested, because a broken PromQL join produces **no
@@ -340,7 +410,7 @@ promtool check rules  monitoring/prometheus/rules/*.yml
 
 ```
 monitoring/
-├── docker-compose.yaml            # Prometheus + Grafana + Control API + Shelly exporter + idle-shutdown
+├── docker-compose.yaml            # Prometheus + Grafana + Control API + Shelly exporter + idle-shutdown + wake-proxy + k3s-autowake
 ├── .env.example
 ├── prometheus/
 │   ├── prometheus.yml             # scrape targets (all nodes, by MagicDNS)
@@ -354,8 +424,16 @@ monitoring/
 │   ├── server.js
 │   ├── package.json
 │   └── Dockerfile
-└── idle-shutdown/                 # Daemon: idle traffic -> control-api shutdown
-    ├── idle-shutdown.js
+├── idle-shutdown/                 # Daemon: idle traffic -> control-api shutdown
+│   ├── idle-shutdown.js
+│   ├── package.json
+│   └── Dockerfile
+├── wake-proxy/                    # Reverse proxy: request for sleeping Aery -> control-api wake
+│   ├── wake-proxy.js
+│   ├── package.json
+│   └── Dockerfile
+└── k3s-autowake/                  # Daemon: unschedulable pods -> control-api wake
+    ├── k3s-autowake.js
     ├── package.json
     └── Dockerfile
 ```

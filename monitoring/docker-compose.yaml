@@ -156,6 +156,62 @@ services:
       IDLE_TIMEOUT_MINUTES_XELOR: "${IDLE_TIMEOUT_MINUTES_XELOR:-}"
       IDLE_TRAFFIC_THRESHOLD_BPS: "${IDLE_TRAFFIC_THRESHOLD_BPS:-51200}"
 
+  wake-proxy:
+    # Reverse proxy for Aery's Nextcloud. Point clients at Ocra:8093 instead of
+    # Aery directly; when Aery is asleep this serves a holding page and fires
+    # a wake call instead of the request just failing to connect.
+    #
+    # Host networking so it can reach control-api (also network_mode: host)
+    # as plain localhost:8090 — same reasoning as idle-shutdown above.
+    build:
+      context: ./wake-proxy
+    image: homelab-wake-proxy:local
+    container_name: homelab_wake_proxy
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      control-api:
+        condition: service_started
+    environment:
+      WAKE_PROXY_PORT: "8093"
+      WAKE_PROXY_ADMIN_PORT: "8094"
+      WAKE_PROXY_NODE: "aery"
+      WAKE_PROXY_TARGET_HOST: "${WAKE_PROXY_TARGET_HOST:-aery.stegosaurus-panga.ts.net}"
+      WAKE_PROXY_TARGET_PORT: "${WAKE_PROXY_TARGET_PORT:-8080}"
+      CONTROL_API_URL: "http://localhost:8090"
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
+
+  k3s-autowake:
+    # Watches for Pending/Unschedulable pods and wakes one of the on-demand
+    # k3s workers (Sram, Xelor, Sacro) when the cluster is actually short on
+    # capacity — the pod-pressure equivalent of wake-proxy's HTTP-request
+    # trigger, since there is no single HTTP entry point for "the cluster
+    # needs a worker".
+    #
+    # Host networking for the same reason as wake-proxy: reaches control-api
+    # via localhost:8090.
+    build:
+      context: ./k3s-autowake
+    image: homelab-k3s-autowake:local
+    container_name: homelab_k3s_autowake
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      control-api:
+        condition: service_started
+    environment:
+      K3S_AUTOWAKE_PORT: "8095"
+      K3S_AUTOWAKE_NODES: "${K3S_AUTOWAKE_NODES:-sram,xelor,sacro}"
+      K3S_AUTOWAKE_CHECK_INTERVAL_SECONDS: "${K3S_AUTOWAKE_CHECK_INTERVAL_SECONDS:-30}"
+      K3S_AUTOWAKE_WAKE_COOLDOWN_MS: "${K3S_AUTOWAKE_WAKE_COOLDOWN_MS:-180000}"
+      CONTROL_API_URL: "http://localhost:8090"
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
+      KUBECONFIG: /home/autowake/.kube/config
+    volumes:
+      # Read-only: this service only ever runs `kubectl get`, never applies
+      # or deletes anything.
+      - ${CONTROL_API_KUBECONFIG:-./secrets/kubeconfig}:/home/autowake/.kube/config:ro
+
   shelly-exporter:
     # Bridges the Shelly Gen2/Plus smart plug's own RPC API into Prometheus
     # text format. The plug sits on the wall outlet feeding the shared power

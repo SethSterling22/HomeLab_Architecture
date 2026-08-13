@@ -1255,6 +1255,251 @@
         "showHeader": true,
         "sortBy": [{ "displayName": "Node", "desc": false }]
       }
+    },
+    {
+      "id": 60,
+      "type": "row",
+      "title": "Wake-on-demand",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 90 },
+      "panels": []
+    },
+    {
+      "id": 61,
+      "type": "stat",
+      "title": "Aery reachable now (wake-proxy)",
+      "description": "wake-proxy's own last TCP reachability check of Aery's Nextcloud, independent of node_exporter. This is what actually decides whether a request gets proxied through or gets the holding page + a wake call.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 91 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_wake_proxy_target_up",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": { "text": "ONLINE", "color": "green", "index": 0 },
+                "0": { "text": "ASLEEP", "color": "orange", "index": 1 }
+              }
+            }
+          ],
+          "noValue": "NOT RUNNING"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 62,
+      "type": "stat",
+      "title": "Wake-proxy requests (since start)",
+      "description": "Total requests wake-proxy has handled for Aery. Resets when the container restarts.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 91 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_wake_proxy_requests_total",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 63,
+      "type": "stat",
+      "title": "Wake-proxy: wake calls issued",
+      "description": "How many times wake-proxy actually fired a wake request at the Control API (rate-limited — one per cooldown window, not one per request).",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 91 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_wake_proxy_wake_calls_total",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 64,
+      "type": "stat",
+      "title": "k3s: unschedulable pending pods",
+      "description": "Pods the scheduler cannot currently place anywhere (PodScheduled=False, reason=Unschedulable). This is k3s-autowake's demand signal for waking Sram/Xelor/Sacro.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 91 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_k3s_autowake_pending_unschedulable",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 65,
+      "type": "table",
+      "title": "k3s-autowake — managed node status",
+      "description": "Live view of which on-demand k3s workers are currently asleep from k3s-autowake's own perspective (Kubernetes Ready condition), and how many wake calls each has received.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 97 },
+      "targets": [
+        {
+          "refId": "asleep",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_k3s_autowake_node_asleep",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "wakes",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_k3s_autowake_wake_calls_total",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "node", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "node": "Node",
+              "Value #asleep": "Asleep?",
+              "Value #wakes": "Wake calls"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Asleep?" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "1": { "text": "asleep", "color": "orange" } } },
+                  { "type": "value", "options": { "0": { "text": "awake", "color": "green" } } }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Node", "desc": false }]
+      }
+    },
+    {
+      "id": 66,
+      "type": "timeseries",
+      "title": "Wake calls over time (all wake-on-demand sources)",
+      "description": "Every automatic wake issued by wake-proxy (Aery) or k3s-autowake (Sram/Xelor/Sacro), separate from manual wakes via the Power control panel above.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 97 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_wake_proxy_wake_calls_total",
+          "legendFormat": "wake-proxy ({{node}})"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_k3s_autowake_wake_calls_total",
+          "legendFormat": "k3s-autowake ({{node}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
     }
   ],
   "annotations": {

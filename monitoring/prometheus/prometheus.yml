@@ -129,6 +129,21 @@ scrape_configs:
         labels:
           node: ocra
 
+  # ── Wake-on-demand daemons' own metrics ──────────────────────────
+  # Both run with network_mode: host (same reason as control-api and
+  # idle-shutdown), so both are reached via Ocra's own Tailscale address.
+  - job_name: wake-proxy
+    static_configs:
+      - targets: ["ocra.stegosaurus-panga.ts.net:8094"]
+        labels:
+          node: ocra
+
+  - job_name: k3s-autowake
+    static_configs:
+      - targets: ["ocra.stegosaurus-panga.ts.net:8095"]
+        labels:
+          node: ocra
+
   # ── Shelly power meter (Phase 3 — real measured wattage) ────────
   # shelly-exporter (shellyctl) polls the Gen2/Plus plug's RPC API and
   # re-exposes it here. It is on the same Docker bridge network as

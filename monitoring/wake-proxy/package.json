@@ -1,0 +1,15 @@
+{
+  "name": "homelab-wake-proxy",
+  "version": "1.0.0",
+  "description": "Reverse proxy that wakes a sleeping node on demand and serves a holding page while it boots.",
+  "main": "wake-proxy.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node wake-proxy.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "private": true
+}
