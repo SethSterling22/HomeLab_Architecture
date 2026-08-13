@@ -254,24 +254,28 @@ after verifying Wake-on-LAN actually wakes Aery back up** — a protected node
 that cannot wake itself back up is a self-inflicted outage, not a power
 saving.
 
-**Confirmed on Aery's actual hardware (an Acer Aspire E1-422 laptop): WOL
-does not work at all, from either a full poweroff or suspend.** This isn't a
-config issue — it's a known limitation of the mainline `alx` driver (Aery's
-Qualcomm Atheros QCA8171 NIC) which never implemented WOL support upstream.
-`ethtool` doesn't even report `Supports Wake-on`/`Wake-on` lines for it, and
-refuses `ethtool -s <iface> wol g` outright.
+**Aery originally failed to wake from either a full poweroff or suspend.**
+Root cause: the mainline `alx` driver (Aery's Qualcomm Atheros QCA8171 NIC)
+never implemented WOL support upstream — `ethtool` didn't even report
+`Supports Wake-on`/`Wake-on` lines for it, and refused `ethtool -s <iface>
+wol g` outright. This was a DRIVER bug, and it was fixable — see
+`docs/aery-wol-alx-fix.md` for the DKMS patch
+([AndiWeiss/alx-wol](https://github.com/AndiWeiss/alx-wol)) that fixed it.
+Status: **fully fixed and confirmed.** Both a suspend+WOL round-trip (woke in
+8s) and a full-poweroff+WOL round-trip (woke in 42s) succeeded, rejoining k3s
+automatically each time. `scripts/wol/shutdown.sh` now uses the normal
+`shutdown -h now` path for Aery, same as every other non-exempted node — no
+suspend workaround needed anymore.
 
-**The fix is `docs/aery-wol-alx-fix.md`** — a community DKMS patch
-([AndiWeiss/alx-wol](https://github.com/AndiWeiss/alx-wol)) that restores WOL
-at the driver level. Follow that runbook fully (it covers Secure Boot and
-kernel-fallback precautions before touching a node with your Nextcloud data)
-before doing anything below.
-
-`scripts/wol/shutdown.sh` currently uses `systemctl suspend` for Aery instead
-of `shutdown -h now` (the same exemption Sacro already needed) — this was
-the best available option before the driver-level fix. Once the DKMS patch
-is confirmed working, you can move Aery back onto the normal full-poweroff
-path if you want the larger power saving (see the runbook's last section).
+**Sacro needs the same `systemctl suspend` exemption, but for a DIFFERENT,
+non-fixable reason:** confirmed via `ethtool` that its driver (`r8169` on a
+Realtek NIC) works completely fine — WOL is already active
+(`Supports Wake-on: pumbg`, `Wake-on: g`). The failure is a hardware
+limitation of that specific laptop (Lenovo G50-45): the board doesn't route
+standby power to the NIC when fully powered off, so no magic packet can ever
+arrive in that state, regardless of driver or OS config. There is no
+driver-level fix for this — `systemctl suspend` is Sacro's permanent,
+correct answer, not a workaround pending a patch.
 
 Only after a real wake round-trip succeeds should `CONTROL_API_ALLOW_SHUTDOWN_AERY`
 go to `true`.

@@ -1,5 +1,21 @@
 # Fixing Wake-on-LAN on Aery (alx driver / QCA8171)
 
+> **✅ Status: fixed and confirmed working.** The `alx-wol` DKMS patch below
+> was installed successfully. Both a suspend+WOL round-trip (woke in 8s) and
+> a full-poweroff+WOL round-trip (woke in 42s) succeeded, rejoining k3s
+> automatically each time. `scripts/wol/shutdown.sh` uses the normal
+> `shutdown -h now` path for Aery now — no exemption needed. This runbook is
+> kept for reference (re-installs after a full OS reinstall, or if a future
+> kernel update breaks the DKMS build).
+>
+> One real gotcha hit during install, worth knowing in advance: the `apt
+> install linux-headers-$(uname -r)` step can trigger an automatic DKMS
+> autoinstall hook that fails if a newer kernel was already pending from an
+> earlier unattended-upgrade — the reboot then lands on a kernel DKMS never
+> built for. Fix was `sudo dkms install -m alx-wol -v 3.1 -k $(uname -r)`
+> run explicitly for whatever kernel `uname -r` reports *after* the reboot,
+> plus `sudo apt --fix-broken install` to clear the resulting dpkg error.
+
 ## The problem, confirmed
 
 Aery (an Acer Aspire E1-422) uses a Qualcomm Atheros QCA8171 NIC on the

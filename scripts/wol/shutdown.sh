@@ -130,22 +130,23 @@ shutdown_node() {
   fi
 
   log "Powering off ${BLUE}${node}${NC} (${ip})..."
-    if [[ "$node" == "sacro" || "$node" == "aery" ]]; then
-      # Exemption for hardware that does not reliably support WOL from a
-      # full ACPI poweroff (S5) — confirmed on Sacro, and now also on Aery
-      # (an Acer Aspire E1-422 laptop): `ethtool` doesn't even report
-      # Supports/Wake-on lines for its NIC and refuses `ethtool -s wol g`
-      # with "Operation not supported", and a real shutdown+WOL round-trip
-      # failed to wake it, despite "Wake on LAN" being enabled in the BIOS.
-      # This is a common laptop limitation: the BIOS toggle covers waking
-      # from suspend (S3), not a fully powered-off board (S5), because
-      # consumer/laptop boards often don't route standby power to the NIC
-      # when fully off the way a desktop ATX PSU does. `systemctl suspend`
-      # keeps enough of the board powered for the NIC to still catch a
-      # magic packet.
+    if [[ "$node" == "sacro" ]]; then
+      # Lenovo G50-45, Realtek r8169: a HARDWARE limitation, not fixable.
+      # `ethtool` works fine here (Supports Wake-on: pumbg, Wake-on: g
+      # already active) — the board simply doesn't route standby power to
+      # the NIC when fully powered off (S5), so no magic packet can ever be
+      # received in that state on this hardware. This exemption is
+      # permanent for sacro.
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo systemctl suspend"
     else
+      # aery (Acer Aspire E1-422, Qualcomm Atheros QCA8171) used to need
+      # this same suspend exemption too: its `alx` driver never implemented
+      # WOL upstream (`ethtool` refused `wol g` with "Operation not
+      # supported"). Fixed via the DKMS patch in docs/aery-wol-alx-fix.md —
+      # a full-poweroff WOL round-trip is now CONFIRMED working (woke in
+      # 42s, rejoined k3s automatically), so aery uses the normal path below
+      # like everything else.
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
         "${user}@${ip}" "sudo shutdown -h now"
     fi
