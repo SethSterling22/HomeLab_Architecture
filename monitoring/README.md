@@ -254,33 +254,27 @@ after verifying Wake-on-LAN actually wakes Aery back up** — a protected node
 that cannot wake itself back up is a self-inflicted outage, not a power
 saving.
 
-**Confirmed on Aery's actual hardware (an Acer Aspire E1-422 laptop):** a
-full poweroff + WOL round-trip **failed** — `ethtool` doesn't even report
-`Supports Wake-on`/`Wake-on` lines for its NIC and refuses
-`ethtool -s <iface> wol g` with "Operation not supported", and `wake.sh`
-could not bring it back after `shutdown -h now`, despite "Wake on LAN" being
-enabled in the BIOS. This is a common laptop limitation: the BIOS toggle
-covers waking from suspend (S3), not a fully powered-off board (S5), because
-consumer/laptop boards frequently don't route standby power to the NIC when
-fully off the way a desktop ATX PSU does.
+**Confirmed on Aery's actual hardware (an Acer Aspire E1-422 laptop): WOL
+does not work at all, from either a full poweroff or suspend.** This isn't a
+config issue — it's a known limitation of the mainline `alx` driver (Aery's
+Qualcomm Atheros QCA8171 NIC) which never implemented WOL support upstream.
+`ethtool` doesn't even report `Supports Wake-on`/`Wake-on` lines for it, and
+refuses `ethtool -s <iface> wol g` outright.
 
-Because of this, `scripts/wol/shutdown.sh` uses `systemctl suspend` for Aery
-instead of `shutdown -h now` — the same exemption Sacro already needed for
-the identical reason. **If Aery is currently unreachable because an earlier
-test used the full-poweroff path, power it back on manually first** (physical
-button) before re-testing.
+**The fix is `docs/aery-wol-alx-fix.md`** — a community DKMS patch
+([AndiWeiss/alx-wol](https://github.com/AndiWeiss/alx-wol)) that restores WOL
+at the driver level. Follow that runbook fully (it covers Secure Boot and
+kernel-fallback precautions before touching a node with your Nextcloud data)
+before doing anything below.
 
-```bash
-# From anywhere on the tailnet, confirm the round-trip works now that Aery
-# uses suspend instead of a full poweroff:
-./scripts/wol/shutdown.sh aery --yes
-./scripts/wol/wake.sh aery
-```
+`scripts/wol/shutdown.sh` currently uses `systemctl suspend` for Aery instead
+of `shutdown -h now` (the same exemption Sacro already needed) — this was
+the best available option before the driver-level fix. Once the DKMS patch
+is confirmed working, you can move Aery back onto the normal full-poweroff
+path if you want the larger power saving (see the runbook's last section).
 
-Only after that round-trip succeeds should `CONTROL_API_ALLOW_SHUTDOWN_AERY`
-go to `true`. Note that `systemctl suspend` (not a full poweroff) means Aery
-still draws some standby power while "off" — less than fully awake, but not
-zero. Factor that into the expected savings.
+Only after a real wake round-trip succeeds should `CONTROL_API_ALLOW_SHUTDOWN_AERY`
+go to `true`.
 
 ### Rollout procedure
 
