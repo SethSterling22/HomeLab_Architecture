@@ -254,23 +254,33 @@ after verifying Wake-on-LAN actually wakes Aery back up** — a protected node
 that cannot wake itself back up is a self-inflicted outage, not a power
 saving.
 
-```bash
-# On Aery itself:
-sudo ethtool <interface>   # e.g. eth0 — check the output for:
-#   Supports Wake-on: ...g...     (g = magic packet, must be present)
-#   Wake-on: g                    (must show g, not d — d means disabled)
-# If it shows "Wake-on: d", enable it and make it persist across reboots
-# (varies by distro/NIC — a udev rule or /etc/network/interfaces post-up
-# hook is the usual fix on Debian).
+**Confirmed on Aery's actual hardware (an Acer Aspire E1-422 laptop):** a
+full poweroff + WOL round-trip **failed** — `ethtool` doesn't even report
+`Supports Wake-on`/`Wake-on` lines for its NIC and refuses
+`ethtool -s <iface> wol g` with "Operation not supported", and `wake.sh`
+could not bring it back after `shutdown -h now`, despite "Wake on LAN" being
+enabled in the BIOS. This is a common laptop limitation: the BIOS toggle
+covers waking from suspend (S3), not a fully powered-off board (S5), because
+consumer/laptop boards frequently don't route standby power to the NIC when
+fully off the way a desktop ATX PSU does.
 
-# From anywhere on the tailnet, confirm a real wake works before trusting
-# auto-shutdown with it:
+Because of this, `scripts/wol/shutdown.sh` uses `systemctl suspend` for Aery
+instead of `shutdown -h now` — the same exemption Sacro already needed for
+the identical reason. **If Aery is currently unreachable because an earlier
+test used the full-poweroff path, power it back on manually first** (physical
+button) before re-testing.
+
+```bash
+# From anywhere on the tailnet, confirm the round-trip works now that Aery
+# uses suspend instead of a full poweroff:
 ./scripts/wol/shutdown.sh aery --yes
 ./scripts/wol/wake.sh aery
 ```
 
 Only after that round-trip succeeds should `CONTROL_API_ALLOW_SHUTDOWN_AERY`
-go to `true`.
+go to `true`. Note that `systemctl suspend` (not a full poweroff) means Aery
+still draws some standby power while "off" — less than fully awake, but not
+zero. Factor that into the expected savings.
 
 ### Rollout procedure
 
