@@ -1,0 +1,46 @@
+# monitoring/prometheus/rules/shelly-power.yml
+#
+# Real measured power for the WHOLE fleet, from a Shelly Gen2/Plus smart plug
+# wired into the wall outlet feeding the shared power strip/UPS all the
+# compute nodes are plugged into (see monitoring/README.md for the physical
+# setup). This is Phase 3 — see docs/monitoring-stack-plan.md.
+#
+# Two things this gives you that the software model (power-model.yml) cannot:
+#   1. A REAL total-watts number to compare against node:power_watts:total
+#      (modelled). No per-node calibration needed — this measures the whole
+#      rack directly.
+#   2. Outage detection. Ocra sits on a SEPARATE circuit/UPS from the
+#      monitored nodes (confirmed setup), so when the plug loses power it
+#      goes fully dark — no network, no RPC response — while Ocra/Prometheus
+#      keep running and keep scraping. The shellyctl exporter's own `up`
+#      metric stays 1 the whole time (Ocra can still reach ITS container);
+#      what disappears is the shelly_status_* series themselves, because
+#      shellyctl can no longer reach the physical device. That absence IS
+#      the outage signal — see lab:grid_status:up below.
+
+groups:
+  - name: shelly-power
+    interval: 30s
+    rules:
+      # Real instantaneous watts for everything on the monitored circuit.
+      # sum() is a no-op today (a Plug S/US has a single switch component,
+      # id 0) but keeps this correct if a multi-channel Shelly is swapped in
+      # later.
+      - record: lab:power_watts:measured
+        expr: sum(shelly_status_instantaneous_active_power_watts)
+
+      # Real minus modelled. Positive means the software model is
+      # underestimating the fleet's true draw; negative means it is
+      # overestimating. Use this instead of manual per-node calibration
+      # (Phase 3's original plan, docs/power-calibration.md) — a continuous
+      # real number is strictly better than one-off stress-ng snapshots.
+      - record: lab:power_watts:measured_vs_estimated:diff
+        expr: lab:power_watts:measured - lab:power_watts:total
+
+      # Outage signal. Evaluates to exactly 1 whenever the plug is reachable
+      # (regardless of its actual wattage value, including 0). When the plug
+      # loses power, this series produces NO sample at all rather than 0 —
+      # that gap is what a Grafana state-timeline panel renders as "no data",
+      # which is the outage indicator. Same pattern as node:up:status.
+      - record: lab:grid_status:up
+        expr: clamp_max(lab:power_watts:measured * 0 + 1, 1)

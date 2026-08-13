@@ -880,6 +880,381 @@
         "showHeader": true,
         "sortBy": [{ "displayName": "Cost (USD)", "desc": true }]
       }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Grid power (Shelly — real measurement, Phase 3)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "Grid power now",
+      "description": "Real measured watts from the Shelly plug feeding the shared power strip/UPS — the whole fleet at once, not modelled.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 66 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:power_watts:measured",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "watt", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "Grid status",
+      "description": "ONLINE while the Shelly plug responds. Reads POWER OUT the moment it stops responding — this is a real outage signal, not a guess, because Ocra runs on a separate circuit/UPS and keeps scraping throughout.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 66 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:grid_status:up",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": { "1": { "text": "ONLINE", "color": "green", "index": 0 } }
+            }
+          ],
+          "noValue": "POWER OUT",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "Measured vs modelled",
+      "description": "Real watts minus the software model's estimate. Positive = model is underestimating the fleet's true draw; negative = overestimating. This is a live, continuous replacement for the one-off per-node stress-ng calibration in docs/power-calibration.md.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 66 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:power_watts:measured_vs_estimated:diff",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 44,
+      "type": "stat",
+      "title": "Measured cost in range (real)",
+      "description": "Uses the Shelly's own cumulative energy counter (increase(), not an average-watts approximation), so this is exact for the selected range — not modelled.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 66 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "increase(shelly_status_total_energy_watt_hours[$__range]) / 1000 * $rate_usd_kwh",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "Measured vs modelled fleet power",
+      "description": "Real (Shelly) vs software-estimated (power-model.yml) total fleet watts, overlaid.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 72 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:power_watts:measured",
+          "legendFormat": "Measured (real)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:power_watts:total",
+          "legendFormat": "Modelled (estimate)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Measured (real)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Modelled (estimate)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 46,
+      "type": "state-timeline",
+      "title": "Grid outage history",
+      "description": "Green = grid power confirmed present. Gaps (\"No data\") = the Shelly stopped responding, i.e. an outage. Staleness means a real outage takes up to ~5 minutes to show as a gap after it starts.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 72 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "lab:grid_status:up",
+          "legendFormat": "Grid"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "ONLINE", "color": "green" } } }
+          ],
+          "custom": { "lineWidth": 0, "fillOpacity": 100 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true
+      }
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Idle auto-shutdown",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 81 },
+      "panels": []
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Mode",
+      "description": "DRY RUN means nothing is ever actually shut down — the daemon only logs what it would do. Set IDLE_SHUTDOWN_DRY_RUN=false in .env to go live.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 82 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_dry_run",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": { "text": "DRY RUN (safe)", "color": "blue", "index": 0 },
+                "0": { "text": "LIVE", "color": "red", "index": 1 }
+              }
+            }
+          ],
+          "noValue": "NOT RUNNING"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 52,
+      "type": "table",
+      "title": "Managed nodes — idle status",
+      "description": "Live view of the idle-shutdown daemon's own evaluation, per managed node. \"Idle now\" = 1 means the node has been below its traffic threshold for its ENTIRE timeout window and would be shut down if not in dry-run.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 82 },
+      "targets": [
+        {
+          "refId": "traffic",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_traffic_bps",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "threshold",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_threshold_bps",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "timeout",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_timeout_minutes",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "idle",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_idle",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "refId": "up",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "homelab_idle_shutdown_node_up",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "node", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "node": "Node",
+              "Value #traffic": "Traffic (B/s)",
+              "Value #threshold": "Threshold (B/s)",
+              "Value #timeout": "Timeout (min)",
+              "Value #idle": "Idle now?",
+              "Value #up": "Reachable?"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" } },
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Idle now?" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "1": { "text": "IDLE", "color": "orange" } } },
+                  { "type": "value", "options": { "0": { "text": "active", "color": "green" } } }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Reachable?" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "1": { "text": "up", "color": "green" } } },
+                  { "type": "value", "options": { "0": { "text": "off/unreachable", "color": "text" } } }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Node", "desc": false }]
+      }
     }
   ],
   "annotations": {

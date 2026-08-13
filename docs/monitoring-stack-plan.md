@@ -94,8 +94,13 @@ and set `N8N_METRICS=true`. We scrape it from here; we do not instrument it here
 Software-only estimation has real limits; being upfront so the "cost quotation"
 is trustworthy:
 
-- There is **no true wattmeter**. We *model* power, we don't measure it (except
-  the GPU).
+- There is no per-node wattmeter. We *model* per-node power, we don't measure
+  it individually (except the GPU). There IS a real wattmeter at the fleet
+  level now — a Shelly plug on the shared power strip/UPS — which measures
+  the whole rack's true draw and is compared live against the modelled total
+  (`lab:power_watts:measured` vs `lab:power_watts:total`, see
+  `monitoring/prometheus/rules/shelly-power.yml`). It just cannot attribute
+  that total to a single node.
 - **RAPL / `scaphandre`** on Intel/AMD reports **CPU-package energy only** — not
   RAM, disks, fans, or PSU conversion losses. On a whole machine that can miss
   30–50% of real draw.
@@ -130,18 +135,25 @@ Prometheus **recording rules** turn `P_node(t)` into:
 
 ### Accuracy & the cheap upgrade path
 
-A pure software model is typically **±20–40%**, worst on Aery. To make the
-numbers defensible without permanently wiring meters:
+A pure software model is typically **±20–40%**, worst on Aery. Two hardware
+options, not mutually exclusive:
 
-- **One-time calibration:** buy a **single** energy-metering smart plug
-  (Shelly Plug / TP-Link Kasa, ~€15). Measure each node's real idle and loaded
-  draw once, plug the two constants into the model, then reuse the plug on the
-  next node. This calibrates the software model cheaply.
-- **Permanent accuracy (optional, later):** one metered plug per node exports
-  real watts continuously (Shelly has a native Prometheus/HTTP endpoint). This is
-  the gold standard if the cost quotation needs to be exact.
+- **Fleet-wide real measurement (done — Phase 3):** a single Shelly Gen2/Plus
+  plug on the shared power strip/UPS measures the whole rack's true draw
+  continuously. It cannot attribute that total to a single node, but it
+  validates the model's total and gives an outage signal for free, with zero
+  manual measurement work. This is what's deployed today.
+- **Per-node calibration (optional, `docs/power-calibration.md`):** move one
+  metering smart plug from node to node, read idle/loaded watts with
+  `stress-ng`, and plug the two constants into `power-model.yml` per node.
+  Gives per-node accuracy the fleet-wide plug cannot. Do this later only if
+  the per-node breakdown (not just the fleet total) needs to be trustworthy.
+- **Permanent per-node accuracy (further upgrade, later):** one metered plug
+  *per node*, exporting continuously — the gold standard, but six plugs
+  instead of one.
 
-Both are additive — the software model works today; hardware only improves it.
+All three are additive — the software model works today; each hardware step
+only improves it.
 
 ---
 
@@ -164,6 +176,20 @@ shell commands itself. So we add a tiny control service:
 
 This control layer is **infrastructure** — it wraps WOL scripts that already live
 in this repo, so it belongs here.
+
+### Idle auto-shutdown (autonomous, on top of the Control API)
+
+A separate daemon (`monitoring/idle-shutdown/`) watches per-node network
+traffic and calls the Control API's own shutdown endpoint once a node has
+been idle past a configurable timeout — no human click involved. Because it
+acts autonomously rather than on a person's explicit request, it carries
+extra safety layers beyond what the button-driven Control API needs:
+dry-run by default, an explicit per-node opt-in list independent of the
+Control API's own allowlist, and idleness evaluated across the FULL timeout
+window rather than as an average (so a real-but-brief burst of activity
+can't be smoothed away). See `monitoring/README.md`, section "Idle
+auto-shutdown", for the full safety model and the Aery-specific
+Wake-on-LAN verification required before enabling it there.
 
 ### What Grafana can't do cleanly → optional custom panel
 
@@ -189,7 +215,7 @@ variable covers the tariff side of the cost calculator.
 | **0** | Prometheus + Grafana on Ocra (Docker Compose); `node_exporter` on all nodes via Ansible; base CPU/RAM/temperature/availability dashboard; first-pass power model with an editable USD tariff. | ✅ Done — `monitoring/` | — |
 | **1** | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | ✅ Done — `monitoring/control-api/` | 0 |
 | **2** | `process-exporter` (per-process CPU/memory — "what is running") + nvidia GPU exporter on Sadida (**real** GPU watts, the only measured power in the model). | ✅ Done — `ansible/playbooks/monitoring.yml`, `monitoring/prometheus/prometheus.yml`, dashboard panels | 0 |
-| **3** | **Calibration.** One metering smart plug, moved node to node, to replace the guessed `P_idle`/`P_max` constants with measured ones. | Open | 0 |
+| **3** | **Real measurement.** A Shelly Gen2/Plus smart plug on the shared power strip/UPS gives real fleet-wide watts (`lab:power_watts:measured`) to compare against the model, plus outage detection — no per-node stress testing needed. | ✅ Done — `monitoring/prometheus/rules/shelly-power.yml`, dashboard row "Grid power". Per-node calibration (`docs/power-calibration.md`) remains available if per-node numbers are ever wanted instead of a fleet total. | 0 |
 | **4** | Refined power model (factor in disk and network I/O, which matter for Aery) + efficiency dashboard: kWh per 1k requests, watts per active core-hour, month-over-month comparison. | Open | 2, 3 |
 
 **Do Phase 3 before Phase 4.** Refining the maths of a model whose constants are

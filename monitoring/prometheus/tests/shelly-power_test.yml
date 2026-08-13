@@ -1,0 +1,50 @@
+# monitoring/prometheus/tests/shelly-power_test.yml
+#
+# Unit tests for the Shelly power-meter rules. The important behavior to
+# protect here is the OUTAGE SIGNAL: lab:grid_status:up must disappear
+# (produce no sample) once the underlying series goes stale, not read as 0 or
+# some other "still there" value — a wrong outage detector that silently
+# reads 0 forever is worse than no detector at all.
+#
+#   cd monitoring/prometheus/tests
+#   promtool test rules shelly-power_test.yml
+
+rule_files:
+  - ../rules/shelly-power.yml
+
+evaluation_interval: 30s
+
+tests:
+  - interval: 15s
+    input_series:
+      # 10 samples at 15s = 135s of real data, then the series stops
+      # entirely — simulating the Shelly losing power. Prometheus applies a
+      # 5-minute staleness window by default before treating an instant
+      # query on this series as producing no result.
+      - series: 'shelly_status_instantaneous_active_power_watts{id="0",device_name="shelly-psu"}'
+        values: "150x10"
+
+    promql_expr_test:
+      # While the plug is reachable: real watts recorded, grid marked up.
+      - expr: lab:power_watts:measured
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="lab:power_watts:measured"}'
+            value: 150
+
+      - expr: lab:grid_status:up
+        eval_time: 1m
+        exp_samples:
+          - labels: '{__name__="lab:grid_status:up"}'
+            value: 1
+
+      # Well past the last sample (135s) plus the 5m staleness window: the
+      # outage. Both series must produce NO samples — not 0, not the last
+      # known value. An empty exp_samples list asserts exactly that.
+      - expr: lab:power_watts:measured
+        eval_time: 15m
+        exp_samples: []
+
+      - expr: lab:grid_status:up
+        eval_time: 15m
+        exp_samples: []

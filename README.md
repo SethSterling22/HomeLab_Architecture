@@ -99,14 +99,23 @@ The AI layer is split into two concerns. **This repository owns the infrastructu
 `monitoring/` runs **Prometheus + Grafana + a small Control API** on Ocra, giving
 one page for fleet health, energy cost, and graphical power control.
 
-- **Metrics** — `node_exporter` on every node (deployed by
-  `ansible/playbooks/monitoring.yml`): CPU, memory, temperature, availability.
+- **Metrics** — `node_exporter` on every node, `process-exporter` for
+  per-process CPU/memory, and `nvidia_gpu_exporter` for real GPU watts on
+  Sadida (all deployed by `ansible/playbooks/monitoring.yml`).
 - **Energy & cost** — a modelled power estimate per node, converted to kWh and
   **USD** using an electricity rate you edit directly in the dashboard header
-  (Puerto Rico rates change often, so it is never baked into config).
+  (Puerto Rico rates change often, so it is never baked into config), PLUS a
+  real fleet-wide measurement from a Shelly smart plug on the shared power
+  strip/UPS — compared live against the model, and doubling as an outage
+  detector.
 - **Control** — wake/shutdown buttons that call a token-authenticated Control
   API wrapping `scripts/wol/*`. Shutdown is blocked by default for Sadida, Ocra
   and Aery; Ocra especially, since it hosts the dashboard itself.
+- **Idle auto-shutdown** — an opt-in, dry-run-by-default daemon that shuts
+  down configured nodes (e.g. Aery, Sram, Xelor) once network traffic has
+  stayed near-zero past a per-node timeout. See `monitoring/README.md`,
+  section "Idle auto-shutdown", before enabling — especially the Wake-on-LAN
+  verification required for Aery.
 
 ```bash
 ansible-playbook ansible/playbooks/monitoring.yml   # exporters on all nodes
@@ -115,10 +124,11 @@ cd monitoring && cp .env.example .env && sudo docker compose up -d --build
 
 Grafana: `http://ocra.stegosaurus-panga.ts.net:3000` → folder **HomeLab**.
 
-> ⚠️ Power figures are **estimates, not measurements** (±20–40%). Calibrate the
-> constants in `monitoring/prometheus/rules/power-model.yml` with a metering
-> plug before quoting absolute costs. See `monitoring/README.md` and
-> `docs/monitoring-stack-plan.md`.
+> ⚠️ The software power model is an **estimate** (±20–40%) where the Shelly
+> plug doesn't cover it (per-node breakdown). Per-node calibration is
+> documented in `docs/power-calibration.md` if that breakdown ever needs to
+> be trustworthy. See `monitoring/README.md` and `docs/monitoring-stack-plan.md`
+> for everything else.
 
 ---
 

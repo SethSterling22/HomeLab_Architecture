@@ -104,10 +104,12 @@ services:
       CONTROL_API_PORT: "8090"
       CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
       CONTROL_API_SCRIPTS_DIR: "/opt/homelab/scripts/wol"
-      # Uncomment to permit powering off a protected node. Read the warning
-      # in control-api/server.js before enabling any of these.
-      # CONTROL_API_ALLOW_SHUTDOWN_AERY: "false"
-      # CONTROL_API_ALLOW_SHUTDOWN_OCRA: "false"
+      # Blocked by default (see the warning in control-api/server.js). Only
+      # set CONTROL_API_ALLOW_SHUTDOWN_AERY=true in .env AFTER verifying WOL
+      # actually wakes Aery back up — see monitoring/README.md, section
+      # "Idle auto-shutdown". A protected node with auto-shutdown enabled but
+      # broken WOL is a self-inflicted outage.
+      CONTROL_API_ALLOW_SHUTDOWN_AERY: "${CONTROL_API_ALLOW_SHUTDOWN_AERY:-false}"
       KUBECONFIG: /home/control/.kube/config
     volumes:
       # The WOL scripts themselves, straight from this repository.
@@ -118,6 +120,67 @@ services:
       - ${CONTROL_API_KNOWN_HOSTS:-./secrets/known_hosts}:/home/control/.ssh/known_hosts:ro
       # kubeconfig so shutdown.sh can drain nodes before powering them off.
       - ${CONTROL_API_KUBECONFIG:-./secrets/kubeconfig}:/home/control/.kube/config:ro
+
+  idle-shutdown:
+    # Watches network traffic (via Prometheus) on a configured set of nodes
+    # and calls control-api's shutdown endpoint once a node has been idle
+    # past its configured timeout. DRY RUN BY DEFAULT — see .env.example.
+    #
+    # Host networking so it can reach both Prometheus (published on
+    # localhost:9090) and control-api (network_mode: host, only reachable
+    # via the host's own address) as plain localhost calls — no Tailscale
+    # hostname workaround needed, same reasoning as control-api itself.
+    build:
+      context: ./idle-shutdown
+    image: homelab-idle-shutdown:local
+    container_name: homelab_idle_shutdown
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      prometheus:
+        condition: service_started
+      control-api:
+        condition: service_started
+    environment:
+      PROMETHEUS_URL: "http://localhost:9090"
+      CONTROL_API_URL: "http://localhost:8090"
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
+      IDLE_SHUTDOWN_PORT: "8092"
+      IDLE_CHECK_INTERVAL_SECONDS: "${IDLE_CHECK_INTERVAL_SECONDS:-300}"
+      # SAFETY: stays "true" (log-only) until you deliberately flip it.
+      IDLE_SHUTDOWN_DRY_RUN: "${IDLE_SHUTDOWN_DRY_RUN:-true}"
+      IDLE_SHUTDOWN_NODES: "${IDLE_SHUTDOWN_NODES:-}"
+      IDLE_TIMEOUT_MINUTES_DEFAULT: "${IDLE_TIMEOUT_MINUTES_DEFAULT:-60}"
+      IDLE_TIMEOUT_MINUTES_AERY: "${IDLE_TIMEOUT_MINUTES_AERY:-}"
+      IDLE_TIMEOUT_MINUTES_SRAM: "${IDLE_TIMEOUT_MINUTES_SRAM:-}"
+      IDLE_TIMEOUT_MINUTES_XELOR: "${IDLE_TIMEOUT_MINUTES_XELOR:-}"
+      IDLE_TRAFFIC_THRESHOLD_BPS: "${IDLE_TRAFFIC_THRESHOLD_BPS:-51200}"
+
+  shelly-exporter:
+    # Bridges the Shelly Gen2/Plus smart plug's own RPC API into Prometheus
+    # text format. The plug sits on the wall outlet feeding the shared power
+    # strip/UPS all the compute nodes are plugged into, so this is REAL
+    # measured wattage for the whole fleet at once — not per-node, but a
+    # ground truth to compare against node:power_watts:total (modelled) and
+    # a way to detect outages (see monitoring/prometheus/rules/shelly-power.yml).
+    #
+    # No special networking needed here: unlike control-api, this only makes
+    # outbound unicast calls to the plug's LAN IP, which works fine over the
+    # default bridge network.
+    image: ghcr.io/jcodybaker/shellyctl:latest
+    container_name: homelab_shelly_exporter
+    restart: unless-stopped
+    command:
+      - "prometheus"
+      - "--bind-addr=0.0.0.0"
+      - "--bind-port=8080"
+      - "--host=${SHELLY_PSU_URL:?set SHELLY_PSU_URL in .env, e.g. http://192.168.68.50/}"
+    ports:
+      - "8091:8080"
+    # No healthcheck: this image is built FROM scratch (just the Go binary,
+    # no shell/wget/curl), so there is nothing to exec a check with. Reachability
+    # is instead verified externally by the Prometheus `shelly-power` scrape
+    # job's own `up` metric.
 
 volumes:
   prometheus_data:

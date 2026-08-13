@@ -119,6 +119,36 @@ scrape_configs:
         target_label: instance
         replacement: "${1}"
 
+  # ── Idle auto-shutdown daemon's own metrics ──────────────────────
+  # Runs with network_mode: host (same reason as control-api), so it is
+  # reached the same way: Ocra's own Tailscale address, not a bridge
+  # service name.
+  - job_name: idle-shutdown
+    static_configs:
+      - targets: ["ocra.stegosaurus-panga.ts.net:8092"]
+        labels:
+          node: ocra
+
+  # ── Shelly power meter (Phase 3 — real measured wattage) ────────
+  # shelly-exporter (shellyctl) polls the Gen2/Plus plug's RPC API and
+  # re-exposes it here. It is on the same Docker bridge network as
+  # Prometheus (no host networking needed, unlike control-api), so the
+  # compose service name resolves directly.
+  #
+  # This measures the WHOLE fleet at once (the plug sits upstream of the
+  # shared power strip/UPS), not a single node — see
+  # monitoring/prometheus/rules/shelly-power.yml for how it feeds
+  # lab:power_watts:measured and outage detection.
+  - job_name: shelly-power
+    static_configs:
+      - targets: ["shelly-exporter:8080"]
+        labels:
+          # Deliberately NOT `node: ...` — this target measures the whole
+          # fleet, not a single node, and every dashboard panel that filters
+          # on $node expects that label to mean "one of the six compute
+          # nodes". A different label name keeps it out of that filter.
+          meter: shelly-psu
+
   # ── Control API (also exposes its own health) ──────────────────
   # control-api runs with network_mode: host (required for WOL broadcast),
   # so it is NOT on the same Docker bridge network as Prometheus — the

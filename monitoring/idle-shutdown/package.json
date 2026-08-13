@@ -1,0 +1,15 @@
+{
+  "name": "homelab-idle-shutdown",
+  "version": "1.0.0",
+  "description": "Watches per-node network traffic and calls the Control API to shut down nodes idle past their configured timeout. Dry-run by default.",
+  "main": "idle-shutdown.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node idle-shutdown.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "private": true
+}
