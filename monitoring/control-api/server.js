@@ -108,6 +108,33 @@ function authorized(req) {
  * caller smuggled `; rm -rf /` past the allowlist, it would arrive as a single
  * literal argv entry and the script would simply reject it as an unknown node.
  */
+/**
+ * Reads and parses a JSON request body. Used only by the generic POST
+ * /control endpoint below — every other endpoint takes its arguments from
+ * the URL, which needs no body parsing at all.
+ */
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 1024 * 1024) {
+        reject(new Error("Body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch (err) {
+        reject(new Error("not valid JSON"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 function runScript(script, args = []) {
   return new Promise((resolve) => {
     const file = path.join(SCRIPTS_DIR, script);
@@ -249,6 +276,27 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/control/status") {
     return handleStatus(res);
+  }
+
+  // Generic body-based endpoint: POST /control with {"action": "wake"|"shutdown", "node": "..."}.
+  // Exists specifically for callers that can't template a dynamic path
+  // (e.g. the Grafana Business Forms panel's REST API mode only
+  // interpolates dashboard variables into the URL, not per-request form
+  // values — see monitoring/README.md, "Grafana buttons"). The path-based
+  // routes below remain the primary interface for scripts/curl/wake-proxy/
+  // k3s-autowake; this is purely additive.
+  if (req.method === "POST" && url.pathname === "/control") {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return send(res, 400, { ok: false, error: `Invalid JSON body: ${err.message}` });
+    }
+    const { action, node, skip_drain } = body || {};
+    if (!node) return send(res, 400, { ok: false, error: "Missing 'node' in request body" });
+    if (action === "wake") return handleWake(res, node);
+    if (action === "shutdown") return handleShutdown(res, node, Boolean(skip_drain));
+    return send(res, 400, { ok: false, error: `Unknown or missing 'action' (expected 'wake' or 'shutdown')` });
   }
 
   if (req.method === "POST" && segments[0] === "control") {

@@ -132,7 +132,7 @@
         },
         "update": {
           "method": "POST",
-          "url": "/control/${payload.action}/${payload.node}",
+          "url": "/api/datasources/proxy/uid/homelab-control-api/control",
           "contentType": "application/json",
           "payloadMode": "custom",
           "getPayload": "const payload = {}; context.panel.elements.forEach((element) => { payload[element.id] = element.value; }); return payload;",

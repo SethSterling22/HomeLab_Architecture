@@ -14,9 +14,16 @@ datasources:
       timeInterval: "15s"
       httpMethod: POST
 
-  # The Control API is exposed to the browser through Grafana's server-side
-  # proxy. This keeps the bearer token on the server: it is injected from the
-  # environment below and never reaches the dashboard JSON or the browser.
+  # The Control API is exposed to the browser through Grafana's own
+  # generic datasource proxy (GET/POST /api/datasources/proxy/uid/<uid>/<path>),
+  # NOT through the Infinity plugin's own query engine. That matters: the
+  # Business Forms panel's REST API update mode does a plain browser fetch()
+  # to whatever URL it's given — it does not go through /api/ds/query, so
+  # Infinity-specific auth settings (auth_method/bearerToken) never get
+  # applied. Grafana's CORE proxy layer, on the other hand, attaches
+  # provisioned custom HTTP headers (httpHeaderName/httpHeaderValue below) to
+  # ANY "access: proxy" datasource regardless of plugin type — that's what
+  # actually keeps the token server-side here.
   - name: Control API
     uid: homelab-control-api
     type: yesoreyeram-infinity-datasource
@@ -24,8 +31,6 @@ datasources:
     url: ${CONTROL_API_URL}
     editable: false
     jsonData:
-      auth_method: bearerToken
-      allowedHosts:
-        - ${CONTROL_API_URL}
+      httpHeaderName1: "Authorization"
     secureJsonData:
-      bearerToken: ${CONTROL_API_TOKEN}
+      httpHeaderValue1: "Bearer ${CONTROL_API_TOKEN}"
