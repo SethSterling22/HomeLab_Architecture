@@ -132,10 +132,10 @@
         },
         "update": {
           "method": "POST",
-          "url": "/control/wake/${payload.node}",
+          "url": "/control/${payload.action}/${payload.node}",
           "contentType": "application/json",
           "payloadMode": "custom",
-          "getPayload": "return {};",
+          "getPayload": "const payload = {}; context.panel.elements.forEach((element) => { payload[element.id] = element.value; }); return payload;",
           "confirm": true
         },
         "reset": {
@@ -192,8 +192,9 @@
             "value": "xelor",
             "options": [
               { "id": "xelor", "label": "Xelor (on-demand)", "value": "xelor" },
-              { "id": "sacro", "label": "Sacro (on-demand)", "value": "sacro" },
-              { "id": "sram", "label": "Sram (24/7 worker)", "value": "sram" }
+              { "id": "sacro", "label": "Sacro (on-demand, shuts down as suspend)", "value": "sacro" },
+              { "id": "sram", "label": "Sram (24/7 worker)", "value": "sram" },
+              { "id": "aery", "label": "Aery (24/7 · Nextcloud, idle-managed)", "value": "aery" }
             ],
             "section": ""
           }

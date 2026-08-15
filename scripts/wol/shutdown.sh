@@ -234,11 +234,15 @@ main() {
   fi
 
   if [[ "$target" == "all" ]]; then
-    confirm "all workers (ocra, sram, xelor, sacro)"
+    confirm "all workers (sram, xelor, sacro)"
     log "Powering off all workers..."
-    # First drain all in parallel, then power off sequentially
+    # Deliberately not draining/powering off Ocra here: it does not support
+    # Wake-on-LAN (see the shutdown_node loop below), so including it in
+    # "all" would power off a node this script cannot bring back. Same
+    # exclusion reasoning as Aery (see the header comment) — "all" only
+    # ever touches nodes this script can also wake back up.
     if [[ "$SKIP_DRAIN" == "false" ]]; then
-      for node in ocra sram xelor sacro; do
+      for node in sram xelor sacro; do
         drain_node "$node" &
       done
       wait
