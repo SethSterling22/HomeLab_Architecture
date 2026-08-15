@@ -163,22 +163,37 @@ function runScript(script, args = []) {
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
+//
+// Both handlers below respond BEFORE the underlying script finishes and let
+// it keep running in the background. wake.sh blocks for up to ~5 minutes
+// (wait for ping, then wait for k3s Ready — see scripts/wol/wake.sh) and
+// shutdown.sh similarly waits for drain + the node to actually go dark.
+// Callers with their own HTTP timeout — notably Grafana's datasource proxy,
+// which gives up after ~30s — would otherwise see a false "failure" even
+// though the action itself is proceeding normally. The Node status panel
+// (fed by Prometheus, independent of this response) and GET /control/status
+// are the right place to watch real progress; this response only confirms
+// the action was accepted and dispatched.
 async function handleWake(res, node) {
   const cfg = NODES[node];
   if (!cfg) return send(res, 404, { ok: false, error: `Unknown node '${node}'` });
   if (!cfg.wake) return send(res, 403, { ok: false, error: `Wake is not permitted for '${node}'` });
 
-  const result = await runScript("wake.sh", [node]);
-  metrics.wake_total[node] = (metrics.wake_total[node] || 0) + 1;
-  if (!result.ok) metrics.errors_total += 1;
+  runScript("wake.sh", [node]).then((result) => {
+    metrics.wake_total[node] = (metrics.wake_total[node] || 0) + 1;
+    if (!result.ok) {
+      metrics.errors_total += 1;
+      console.error(`wake ${node} finished with an error:\n${result.stderr}`);
+    } else {
+      console.log(`wake ${node} finished:\n${result.stdout}`);
+    }
+  });
 
-  return send(res, result.ok ? 200 : 500, {
-    ok: result.ok,
+  return send(res, 202, {
+    ok: true,
     action: "wake",
     node,
-    message: result.ok ? `Magic packet sent to ${node}` : `Failed to wake ${node}`,
-    output: result.stdout,
-    error: result.ok ? undefined : result.stderr,
+    message: `Magic packet sent to ${node}. It can take 1-2 minutes to come up — watch the Node status panel or GET /control/status.`,
   });
 }
 
@@ -193,22 +208,26 @@ async function handleShutdown(res, node, skipDrain) {
     });
   }
 
-  // --yes is mandatory here: the script prompts on a TTY and this caller has none.
+  // --yes is mandatory here: the script prompts on a TTY and this caller has no TTY.
   const args = [node, "--yes"];
   if (skipDrain) args.push("--skip-drain");
 
-  const result = await runScript("shutdown.sh", args);
-  metrics.shutdown_total[node] = (metrics.shutdown_total[node] || 0) + 1;
-  if (!result.ok) metrics.errors_total += 1;
+  runScript("shutdown.sh", args).then((result) => {
+    metrics.shutdown_total[node] = (metrics.shutdown_total[node] || 0) + 1;
+    if (!result.ok) {
+      metrics.errors_total += 1;
+      console.error(`shutdown ${node} finished with an error:\n${result.stderr}`);
+    } else {
+      console.log(`shutdown ${node} finished:\n${result.stdout}`);
+    }
+  });
 
-  return send(res, result.ok ? 200 : 500, {
-    ok: result.ok,
+  return send(res, 202, {
+    ok: true,
     action: "shutdown",
     node,
     drained: !skipDrain,
-    message: result.ok ? `${node} powered off` : `Failed to power off ${node}`,
-    output: result.stdout,
-    error: result.ok ? undefined : result.stderr,
+    message: `Shutdown of ${node} dispatched (drain-then-poweroff can take a couple minutes) — watch the Node status panel or GET /control/status.`,
   });
 }
 
