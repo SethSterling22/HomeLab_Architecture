@@ -35,7 +35,7 @@ declare -A NODE_IPS=(
   [ocra]="100.107.52.17"
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
-  [sacro]="100.123.227.47"
+  [sacro]="100.127.196.32"
   # MagicDNS hostname (not a raw Tailscale IP, unlike the others above):
   # this repo has no recorded Tailscale IP for Aery. Swap in the real IP
   # from `tailscale status` if you want it consistent with the rest.
