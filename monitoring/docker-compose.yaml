@@ -55,6 +55,15 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+    # Grafana runs on the default Docker bridge network (not network_mode:
+    # host), so it has no Tailscale interface and cannot resolve MagicDNS
+    # names like ocra.stegosaurus-panga.ts.net — that hostname falls through
+    # to public DNS from inside this container and resolves to garbage. Since
+    # control-api is host-networked on this SAME machine, Grafana reaches it
+    # through Docker's special host-gateway address instead. Requires Docker
+    # Engine 20.10+ (long since standard on Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}"
@@ -76,9 +85,12 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
-      # The Control API is called from the browser through Grafana's proxy,
-      # so Grafana must be allowed to reach it.
-      CONTROL_API_URL: "${CONTROL_API_URL:-http://ocra.stegosaurus-panga.ts.net:8090}"
+      # Deliberately NOT the shared CONTROL_API_URL from .env (that one is the
+      # Tailscale hostname, correct for a human's browser/curl or for a
+      # different machine — but this container has no Tailscale interface of
+      # its own). Grafana's own outbound call to control-api always stays
+      # local to this host, via the extra_hosts entry above.
+      CONTROL_API_URL: "http://host.docker.internal:8090"
       CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:?set CONTROL_API_TOKEN in .env}"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
