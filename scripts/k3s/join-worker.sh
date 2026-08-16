@@ -17,7 +17,7 @@ err()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 declare -A WORKER_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
-  [sacro]="100.123.227.47"
+  [sacro]="100.127.196.32"
   [ocra]="100.107.52.17"
 )
 K3S_MASTER_IP="192.168.68.10"      # Sadida — k3s control-plane (runs on the Proxmox host)
