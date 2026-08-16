@@ -2,9 +2,18 @@
 #
 # Scrape configuration for the HomeLab fleet.
 #
-# Targets are addressed by Tailscale MagicDNS rather than LAN IP so the stack
-# keeps working across LAN reconfigurations. Every node runs node_exporter on
-# :9100 (installed by ansible/playbooks/monitoring.yml).
+# Targets are pinned to raw Tailscale IPs (100.x.x.x, from `tailscale status`),
+# NOT MagicDNS hostnames. That was the original design (LAN-reconfiguration
+# resilience without hardcoding IPs), but Ocra's own Tailscale health check
+# reports "System DNS config not ideal — /etc/resolv.conf overwritten"
+# (something on Ocra keeps resetting resolv.conf, fighting with Tailscale's
+# resolver at 100.100.100.100 — see https://tailscale.com/s/dns-fight). Until
+# that's fixed at the OS level, every *.stegosaurus-panga.ts.net hostname is
+# unreliable from Ocra (and from any container without its own Tailscale
+# interface), so every target below is a raw IP instead. If a node's Tailscale
+# IP ever changes, update it here AND in scripts/wol/wake.sh + shutdown.sh —
+# those already use raw IPs for the same reason. Every node runs node_exporter
+# on :9100 (installed by ansible/playbooks/monitoring.yml).
 #
 # The `node` label is what every dashboard query and power-model rule joins on.
 # Keep it stable and lowercase; it must match the node names used by the
@@ -35,12 +44,12 @@ scrape_configs:
   - job_name: nodes
     scrape_interval: 15s
     static_configs:
-      - targets: ["sadida.stegosaurus-panga.ts.net:9100"]
+      - targets: ["100.123.206.35:9100"]
         labels:
           node: sadida
           tier: always_on
           role: hypervisor
-      - targets: ["ocra.stegosaurus-panga.ts.net:9100"]
+      - targets: ["100.107.52.17:9100"]
         labels:
           node: ocra
           tier: always_on
@@ -56,17 +65,17 @@ scrape_configs:
           node: aery
           tier: always_on
           role: nextcloud_storage
-      - targets: ["sram.stegosaurus-panga.ts.net:9100"]
+      - targets: ["100.87.145.104:9100"]
         labels:
           node: sram
           tier: always_on
           role: k3s_worker
-      - targets: ["xelor.stegosaurus-panga.ts.net:9100"]
+      - targets: ["100.92.255.18:9100"]
         labels:
           node: xelor
           tier: on_demand
           role: k3s_worker
-      - targets: ["sacro.stegosaurus-panga.ts.net:9100"]
+      - targets: ["100.127.196.32:9100"]
         labels:
           node: sacro
           tier: on_demand
@@ -84,23 +93,23 @@ scrape_configs:
   - job_name: process-exporter
     scrape_interval: 15s
     static_configs:
-      - targets: ["sadida.stegosaurus-panga.ts.net:9256"]
+      - targets: ["100.123.206.35:9256"]
         labels:
           node: sadida
-      - targets: ["ocra.stegosaurus-panga.ts.net:9256"]
+      - targets: ["100.107.52.17:9256"]
         labels:
           node: ocra
       # Raw IP — see the comment on Aery's entry in the `nodes` job above.
       - targets: ["100.98.226.8:9256"]
         labels:
           node: aery
-      - targets: ["sram.stegosaurus-panga.ts.net:9256"]
+      - targets: ["100.87.145.104:9256"]
         labels:
           node: sram
-      - targets: ["xelor.stegosaurus-panga.ts.net:9256"]
+      - targets: ["100.92.255.18:9256"]
         labels:
           node: xelor
-      - targets: ["sacro.stegosaurus-panga.ts.net:9256"]
+      - targets: ["100.127.196.32:9256"]
         labels:
           node: sacro
     relabel_configs:
@@ -117,7 +126,7 @@ scrape_configs:
   - job_name: nvidia-gpu-exporter
     scrape_interval: 15s
     static_configs:
-      - targets: ["sadida.stegosaurus-panga.ts.net:9835"]
+      - targets: ["100.123.206.35:9835"]
         labels:
           node: sadida
     relabel_configs:
@@ -132,7 +141,7 @@ scrape_configs:
   # service name.
   - job_name: idle-shutdown
     static_configs:
-      - targets: ["ocra.stegosaurus-panga.ts.net:8092"]
+      - targets: ["100.107.52.17:8092"]
         labels:
           node: ocra
 
@@ -141,13 +150,13 @@ scrape_configs:
   # idle-shutdown), so both are reached via Ocra's own Tailscale address.
   - job_name: wake-proxy
     static_configs:
-      - targets: ["ocra.stegosaurus-panga.ts.net:8094"]
+      - targets: ["100.107.52.17:8094"]
         labels:
           node: ocra
 
   - job_name: k3s-autowake
     static_configs:
-      - targets: ["ocra.stegosaurus-panga.ts.net:8095"]
+      - targets: ["100.107.52.17:8095"]
         labels:
           node: ocra
 
@@ -178,7 +187,7 @@ scrape_configs:
   # Ocra's own Tailscale address instead, same as every other target here.
   - job_name: control-api
     static_configs:
-      - targets: ["ocra.stegosaurus-panga.ts.net:8090"]
+      - targets: ["100.107.52.17:8090"]
         labels:
           node: ocra
 
