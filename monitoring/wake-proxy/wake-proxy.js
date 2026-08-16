@@ -48,7 +48,7 @@ const WAKE_COOLDOWN_MS = parseInt(process.env.WAKE_PROXY_WAKE_COOLDOWN_MS || "30
 const REFRESH_SECONDS = parseInt(process.env.WAKE_PROXY_REFRESH_SECONDS || "5", 10);
 
 if (!TARGET_HOST) {
-  console.error("WAKE_PROXY_TARGET_HOST is required (e.g. aery.stegosaurus-panga.ts.net)");
+  console.error("WAKE_PROXY_TARGET_HOST is required (e.g. 100.98.226.8 — a raw Tailscale IP, not a MagicDNS hostname)");
   process.exit(1);
 }
 

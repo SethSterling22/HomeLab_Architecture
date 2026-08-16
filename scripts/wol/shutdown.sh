@@ -36,10 +36,14 @@ declare -A NODE_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
   [sacro]="100.127.196.32"
-  # MagicDNS hostname (not a raw Tailscale IP, unlike the others above):
-  # this repo has no recorded Tailscale IP for Aery. Swap in the real IP
-  # from `tailscale status` if you want it consistent with the rest.
-  [aery]="aery.stegosaurus-panga.ts.net"
+  # Raw Tailscale IP, same as every other node (from `tailscale status`).
+  # This USED to be the MagicDNS hostname (aery.stegosaurus-panga.ts.net),
+  # but that stopped resolving correctly on Ocra at some point — it fell
+  # through to public DNS and returned an unrelated anycast IP instead of
+  # a NXDOMAIN, so shutdown silently tried to SSH into the wrong host
+  # ("Network is unreachable") rather than failing loudly. Pin the raw IP
+  # to remove the DNS dependency entirely, matching every other node here.
+  [aery]="100.98.226.8"
 )
 declare -A NODE_USERS=(
   [ocra]="seth"

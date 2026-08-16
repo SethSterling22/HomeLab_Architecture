@@ -45,7 +45,13 @@ scrape_configs:
           node: ocra
           tier: always_on
           role: automation_brain
-      - targets: ["aery.stegosaurus-panga.ts.net:9100"]
+      # Raw Tailscale IP, unlike every other target in this job: Aery's
+      # MagicDNS hostname stopped resolving correctly (fell through to
+      # public DNS and returned an unrelated anycast address instead of
+      # failing loudly) — see scripts/wol/wake.sh for the same issue hit
+      # via Wake-on-LAN. Pinned here until MagicDNS for Aery is confirmed
+      # fixed; swap back to the hostname at that point for consistency.
+      - targets: ["100.98.226.8:9100"]
         labels:
           node: aery
           tier: always_on
@@ -84,7 +90,8 @@ scrape_configs:
       - targets: ["ocra.stegosaurus-panga.ts.net:9256"]
         labels:
           node: ocra
-      - targets: ["aery.stegosaurus-panga.ts.net:9256"]
+      # Raw IP — see the comment on Aery's entry in the `nodes` job above.
+      - targets: ["100.98.226.8:9256"]
         labels:
           node: aery
       - targets: ["sram.stegosaurus-panga.ts.net:9256"]
