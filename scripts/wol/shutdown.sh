@@ -137,7 +137,7 @@ shutdown_node() {
       # the NIC when fully powered off (S5), so no magic packet can ever be
       # received in that state on this hardware. This exemption is
       # permanent for sacro.
-      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "${user}@${ip}" "sudo systemctl suspend"
     else
       # aery (Acer Aspire E1-422, Qualcomm Atheros QCA8171) used to need
@@ -147,7 +147,7 @@ shutdown_node() {
       # a full-poweroff WOL round-trip is now CONFIRMED working (woke in
       # 42s, rejoined k3s automatically), so aery uses the normal path below
       # like everything else.
-      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "${user}@${ip}" "sudo shutdown -h now"
     fi
 
