@@ -7,12 +7,20 @@
 #   openssh-client - shutdown.sh connects to the node to power it off
 #   kubectl    - shutdown.sh drains the node from k3s first
 #   bash       - the scripts use bash-only features (associative arrays)
+#   netbase    - NOT optional. wakeonlan is a Perl script that resolves the
+#     UDP protocol number via getprotobyname('udp'), which reads /etc/protocols
+#     — a file only netbase provides. Without it, wakeonlan warns
+#     "Use of uninitialized value $proto in socket" and the magic packet is
+#     never actually sent. node:20-bookworm-slim doesn't include it, and
+#     --no-install-recommends below means it won't be pulled in implicitly
+#     just because wakeonlan is installed.
 FROM node:20-bookworm-slim
 
 ARG KUBECTL_VERSION=v1.31.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
+      netbase \
       wakeonlan \
       iputils-ping \
       openssh-client \
