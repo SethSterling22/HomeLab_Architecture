@@ -1,0 +1,165 @@
+---
+# ansible/playbooks/nut-ups.yml
+#
+# Installs NUT (Network UPS Tools) server on Aery, reading the CyberPower
+# S175UC UPS over USB, and exposes its status to the network (upsd on
+# :3493) so Ocra's nut_exporter can scrape it remotely. See
+# docs/nut-ups-monitoring.md for the full client-server explanation of why
+# the physical USB cable does not need to reach Ocra, and monitoring/README.md
+# for the dashboard side.
+#
+# Usage:
+#   ansible-playbook ansible/playbooks/nut-ups.yml
+#
+# Prerequisite: the UPS's USB cable must already be physically plugged into
+# Aery before this runs. The "Confirm the UPS is visible on USB" task warns
+# (but does not fail) if it isn't found — the driver start further down
+# will fail loudly in that case, which is the real signal to go check the
+# cable.
+#
+# Why Aery specifically: it is one of the always-on nodes physically close
+# to the UPS (the others being Sadida and Sram), and running Nextcloud
+# already makes it the node that benefits most from any future graceful-
+# shutdown-on-outage work.
+#
+# Scope note: this playbook ONLY sets up read-only network monitoring
+# (upsd + the usbhid-ups driver). It deliberately does NOT configure
+# upsmon / automatic shutdown on Aery or any other node — coordinated
+# graceful shutdown across the fleet on a real outage was explicitly
+# deferred as a bigger, separate step. See "Not done yet" in
+# docs/nut-ups-monitoring.md if that gets picked up later.
+
+- name: Install and configure NUT server (upsd) on Aery for the CyberPower UPS
+  hosts: aery
+  become: true
+
+  vars:
+    nut_ups_name: cyberpower
+    nut_ups_desc: "CyberPower S175UC (battery backup, USB)"
+    # Most CyberPower units (including the "UC" USB-charging-port line this
+    # model belongs to) are USB/HID compliant and work with usbhid-ups out of
+    # the box. A handful of older/cheaper CyberPower models need nutdrv_qx or
+    # blazer_usb instead — if the verification step at the end of this play
+    # fails to detect the UPS, that is the first thing to try changing here.
+    nut_ups_driver: usbhid-ups
+    nut_upsd_port: 3493
+
+  tasks:
+    - name: Install nut-server
+      ansible.builtin.apt:
+        name: nut-server
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Confirm the UPS is visible on USB before configuring the driver
+      ansible.builtin.command: lsusb
+      register: lsusb_out
+      changed_when: false
+
+    - name: Warn if no CyberPower device is visible on USB
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: no "CyberPower" or "0764:" (CPS Vendor ID) match in
+          `lsusb` output. Confirm the S175UC's USB cable is actually plugged
+          into Aery before continuing — the driver start further down will
+          otherwise fail with "No matching HID UPS found".
+      when: "'CyberPower' not in lsusb_out.stdout and '0764:' not in lsusb_out.stdout"
+
+    - name: Set NUT mode to netserver (serves other hosts over the network)
+      # The other three modes (standalone / netclient / none) either keep
+      # the status local to Aery or expect a REMOTE upsd — netserver is the
+      # one that lets Ocra query this host.
+      ansible.builtin.lineinfile:
+        path: /etc/nut/nut.conf
+        regexp: '^MODE='
+        line: "MODE=netserver"
+        create: true
+        owner: root
+        group: nut
+        mode: "0640"
+
+    - name: Configure the UPS driver stanza
+      ansible.builtin.blockinfile:
+        path: /etc/nut/ups.conf
+        owner: root
+        group: nut
+        mode: "0640"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK — homelab UPS"
+        block: |
+          [{{ nut_ups_name }}]
+              driver = {{ nut_ups_driver }}
+              port = auto
+              desc = "{{ nut_ups_desc }}"
+
+    - name: Allow network clients to reach upsd
+      # Bound broadly (0.0.0.0), same pattern as node_exporter elsewhere in
+      # this repo — actual exposure is restricted by the ufw rule below, not
+      # by the bind address.
+      ansible.builtin.blockinfile:
+        path: /etc/nut/upsd.conf
+        owner: root
+        group: nut
+        mode: "0640"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK — homelab UPS"
+        block: |
+          LISTEN 0.0.0.0 {{ nut_upsd_port }}
+
+    - name: Reload udev rules
+      # nut-server ships udev rules granting the 'nut' group access to known
+      # UPS USB device IDs. A rule reload (plus trigger) picks up a UPS that
+      # was already plugged in before this package was installed, without
+      # requiring a physical unplug/replug.
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - udevadm control --reload-rules
+        - udevadm trigger
+      changed_when: false
+
+    - name: Regenerate and (re)start the systemd driver instance for this UPS
+      # nut-driver-enumerator reads ups.conf and creates/updates the
+      # matching nut-driver@<name>.service instance. Run unconditionally
+      # (not just on config change) so this play is safe to re-run any time,
+      # including right after first install. It also restarts nut-server
+      # itself if the config actually changed, so no separate handler is
+      # needed for that half.
+      ansible.builtin.command: systemctl start nut-driver-enumerator.service
+      changed_when: false
+
+    - name: Enable driver startup at boot (nut-driver.target)
+      ansible.builtin.systemd:
+        name: nut-driver.target
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Enable and start upsd (nut-server)
+      ansible.builtin.systemd:
+        name: nut-server.service
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow Ocra (and the rest of the tailnet/LAN) to reach upsd
+      community.general.ufw:
+        rule: allow
+        port: "{{ nut_upsd_port }}"
+        proto: tcp
+        from_ip: "{{ item }}"
+      loop:
+        - "100.0.0.0/8"        # Tailscale CGNAT range
+        - "192.168.68.0/24"    # LAN
+      failed_when: false
+      changed_when: false
+
+    - name: Verify upsd answers locally and reports the configured UPS
+      ansible.builtin.command: "upsc {{ nut_ups_name }}@localhost"
+      register: upsc_check
+      changed_when: false
+      retries: 5
+      delay: 3
+      until: upsc_check is succeeded
+
+    - name: Show the UPS status NUT actually detected
+      ansible.builtin.debug:
+        var: upsc_check.stdout_lines

@@ -254,6 +254,34 @@ services:
     # is instead verified externally by the Prometheus `shelly-power` scrape
     # job's own `up` metric.
 
+  nut-exporter:
+    # Bridges the CyberPower S175UC UPS's status into Prometheus text format,
+    # via NUT (Network UPS Tools). The UPS itself is wired via USB into
+    # Aery, NOT into Ocra — Aery is physically close to the UPS, Ocra is not
+    # (see docs/nut-ups-monitoring.md). NUT's client-server model means this
+    # container never touches USB: it makes an OUTBOUND network call to
+    # Aery's own `upsd` on port 3493 (NUT's own protocol, unrelated to
+    # HTTP/Prometheus), so — unlike control-api — it needs no special
+    # networking and runs on the default bridge network, same as
+    # shelly-exporter above.
+    image: druggeri/nut_exporter:3.3.0
+    container_name: homelab_nut_exporter
+    restart: unless-stopped
+    environment:
+      NUT_EXPORTER_SERVER: "${NUT_UPS_HOST:?set NUT_UPS_HOST in .env — Aery's Tailscale IP}"
+      NUT_EXPORTER_SERVERPORT: "3493"
+      # battery.runtime and ups.realpower are requested in case the S175UC
+      # reports them, but most consumer AVR units only reliably expose
+      # charge/load/status — a variable the UPS doesn't support simply does
+      # not appear as a metric, it does not error the scrape.
+      NUT_EXPORTER_VARIABLES: "battery.charge,battery.runtime,battery.voltage,battery.voltage.nominal,input.voltage,input.voltage.nominal,ups.load,ups.realpower,ups.status"
+    ports:
+      - "9199:9199"
+    # No healthcheck: same reasoning as shelly-exporter above — this is a
+    # scratch-based image with no shell to exec a check with. Reachability
+    # is verified externally via the `nut-ups` Prometheus job's own `up`
+    # metric.
+
 volumes:
   prometheus_data:
   grafana_data:

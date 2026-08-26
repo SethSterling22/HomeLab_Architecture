@@ -180,6 +180,28 @@ scrape_configs:
           # nodes". A different label name keeps it out of that filter.
           meter: shelly-psu
 
+  # ── CyberPower S175UC UPS (Phase 4 — battery backup monitoring) ─
+  # Physically connected via USB to Aery (the always-on node closest to the
+  # UPS — see docs/nut-ups-monitoring.md for why). NUT's own client-server
+  # model means Ocra needs no physical access to that USB cable:
+  # nut_exporter (running here on Ocra, same Docker bridge network as
+  # shelly-exporter) queries Aery's `upsd` remotely over Tailscale on port
+  # 3493 — NUT's own protocol, unrelated to this HTTP scrape.
+  #
+  # Deliberately NOT `node: aery` — this UPS's battery backs whichever
+  # outlets it is physically wired to (Sadida/Sram/Sacro/Aery, per its
+  # current placement), not a single node's own draw, so it does not belong
+  # under a `$node`-filtered panel. Same reasoning as `shelly-power` below,
+  # just a different (and smaller) subset of the fleet.
+  - job_name: nut-ups
+    metrics_path: /ups_metrics
+    static_configs:
+      - targets: ["nut-exporter:9199"]
+        labels:
+          meter: cyberpower-s175uc
+    params:
+      ups: ["cyberpower"]
+
   # ── Control API (also exposes its own health) ──────────────────
   # control-api runs with network_mode: host (required for WOL broadcast),
   # so it is NOT on the same Docker bridge network as Prometheus — the

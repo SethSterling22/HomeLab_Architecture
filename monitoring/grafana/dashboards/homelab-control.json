@@ -1501,6 +1501,186 @@
         "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] },
         "tooltip": { "mode": "multi", "sort": "desc" }
       }
+    },
+    {
+      "id": 70,
+      "type": "row",
+      "title": "UPS (CyberPower S175UC — real battery backup, Phase 4)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 105 },
+      "panels": []
+    },
+    {
+      "id": 71,
+      "type": "stat",
+      "title": "UPS status",
+      "description": "ONLINE while mains power is present at the UPS. Reads ON BATTERY the moment mains is lost — a real outage signal for whichever nodes are wired into this UPS (Sadida/Sram/Sacro/Aery, not the whole fleet — see docs/nut-ups-monitoring.md). Different signal from 'Grid status' above, which comes from the Shelly plug on a different subset of outlets.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 106 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_ups_status{flag=\"OL\"}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "ONLINE", "color": "green", "index": 0 } } },
+            { "type": "value", "options": { "0": { "text": "ON BATTERY", "color": "red", "index": 1 } } }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 72,
+      "type": "stat",
+      "title": "Battery charge",
+      "description": "battery.charge as reported by the UPS itself over USB/NUT.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 106 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_battery_charge",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 50 }, { "color": "green", "value": 80 }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 73,
+      "type": "stat",
+      "title": "UPS load",
+      "description": "ups.load — percentage of the UPS's rated capacity (660W / 1175VA) currently being drawn by whatever is plugged into it. Not the same as any single node's own draw.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 106 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_ups_load",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 0, "min": 0, "max": 100 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 74,
+      "type": "stat",
+      "title": "Battery runtime remaining",
+      "description": "battery.runtime, if the S175UC reports it (many consumer AVR units only give a coarse estimate, or none at all — this panel reading 'No data' is expected in that case, not a bug).",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 106 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_battery_runtime",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 75,
+      "type": "timeseries",
+      "title": "Battery charge & load over time",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 112 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_battery_charge",
+          "legendFormat": "Battery charge %"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_ups_load",
+          "legendFormat": "UPS load %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 76,
+      "type": "state-timeline",
+      "title": "UPS status history (mains vs battery)",
+      "description": "Green = mains power confirmed present at this UPS. Gaps ('No data') mean nut_exporter could not reach Aery's upsd — check Aery is up and the USB cable is seated. Red = confirmed running on battery, a real localized outage for whatever is wired into this UPS.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 112 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "network_ups_tools_ups_status{flag=\"OL\"}",
+          "legendFormat": "UPS mains"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "1": { "text": "ONLINE", "color": "green" } } },
+            { "type": "value", "options": { "0": { "text": "ON BATTERY", "color": "red" } } }
+          ],
+          "custom": { "lineWidth": 0, "fillOpacity": 100 }
+        },
+        "overrides": []
+      },
+      "options": { "showValue": "never", "mergeValues": true }
     }
   ],
   "annotations": {

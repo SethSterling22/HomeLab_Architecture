@@ -15,6 +15,7 @@ Implements **Phases 0, 1, 2 and 3** of `docs/monitoring-stack-plan.md`.
 | **GPU** | Real watts, utilization, temperature and memory on Sadida's RTX 3050 (`nvidia_gpu_exporter`) — the one non-modelled power number in the stack |
 | **Energy** | Estimated watts per node, kWh and **USD cost** over any time range, projected monthly cost |
 | **Grid power** | Real measured watts for the WHOLE fleet from a Shelly smart plug, compared live against the software model, plus outage detection (Phase 3) |
+| **UPS** | Battery charge, load % and on-line/on-battery status from a CyberPower S175UC UPS (a smaller, different subset of nodes than the Shelly above), via NUT (Phase 4) — see `docs/nut-ups-monitoring.md` |
 | **Control** | Wake / shut down buttons, with confirmation, wired to `scripts/wol/` |
 | **Idle auto-shutdown** | Nodes go to sleep on their own after a configurable period of near-zero network traffic |
 | **Wake-on-demand** | Sleeping nodes wake themselves: a reverse proxy for Aery/Nextcloud, pod-pressure detection for the k3s workers — see "Wake-on-demand" below |
@@ -146,6 +147,20 @@ numbers instead of a fleet total).
    `http://<shelly-ip>/` or `http://admin:<password>@<shelly-ip>/` if RPC
    auth is enabled on the device.
 
+### 2c. Set up the CyberPower UPS (Phase 4, optional)
+
+A CyberPower S175UC UPS wired into a subset of the fleet (Sadida/Sram/Sacro/
+Aery, physically near the UPS, not Ocra). Unlike the Shelly, this is a real
+battery backup, not just a meter — see `docs/nut-ups-monitoring.md` for the
+full write-up (why the USB cable lives on Aery, not Ocra, and what NUT's
+client-server split means here).
+
+```bash
+ansible-playbook ansible/playbooks/nut-ups.yml   # provisions Aery's side
+```
+
+Then set `NUT_UPS_HOST` in `.env` (Aery's Tailscale IP) before step 3 below.
+
 ### 3. Configure and launch
 
 ```bash
@@ -169,12 +184,13 @@ curl -s localhost:8092/health                                # idle-shutdown dae
 curl -s localhost:8093/health                                # wake-proxy (public entry)
 curl -s localhost:8094/health                                # wake-proxy (admin/metrics)
 curl -s localhost:8095/health                                # k3s-autowake
+curl -s 'localhost:9199/ups_metrics?ups=cyberpower' | grep network_ups_tools_ups_status # nut-exporter
 curl -s localhost:9090/api/v1/targets | grep -o '"job":"[^"]*"' | sort -u
 ```
 
 The last command should list `nodes`, `process-exporter`, `nvidia-gpu-exporter`,
-`control-api`, `prometheus`, `shelly-power`, `idle-shutdown`, `wake-proxy` and
-`k3s-autowake`.
+`control-api`, `prometheus`, `shelly-power`, `nut-ups`, `idle-shutdown`,
+`wake-proxy` and `k3s-autowake`.
 
 Then open Grafana at `http://ocra.stegosaurus-panga.ts.net:3000` → folder
 **HomeLab** → dashboard **HomeLab — Nodes, Power & Control**.
@@ -410,10 +426,10 @@ promtool check rules  monitoring/prometheus/rules/*.yml
 
 ```
 monitoring/
-├── docker-compose.yaml            # Prometheus + Grafana + Control API + Shelly exporter + idle-shutdown + wake-proxy + k3s-autowake
+├── docker-compose.yaml            # Prometheus + Grafana + Control API + Shelly exporter + nut-exporter + idle-shutdown + wake-proxy + k3s-autowake
 ├── .env.example
 ├── prometheus/
-│   ├── prometheus.yml             # scrape targets (all nodes, by MagicDNS)
+│   ├── prometheus.yml             # scrape targets (all nodes, by raw Tailscale IP — see the file's own header comment)
 │   ├── rules/power-model.yml      # ⭐ per-node watt constants — edit to calibrate
 │   ├── rules/shelly-power.yml     # real measured watts + outage detection
 │   └── tests/                     # promtool unit tests (power-model, shelly-power)
@@ -448,7 +464,13 @@ monitoring/
   `N8N_METRICS=true`; the scrape jobs are already written and commented out in
   `prometheus/prometheus.yml`, ready to enable.
 - **Control button panel.** The wake/shutdown buttons use the Business Forms
-  panel (`volkovlabs-form-panel`). The API endpoints and safety logic are tested
-  end-to-end, but the panel's own option schema changes between plugin versions
-  — if the buttons do not submit on first run, open the panel editor and confirm
-  the request URL points at `/control/${payload.action}/${payload.node}`.
+  panel (`volkovlabs-form-panel`), submitting to the static URL
+  `/api/datasources/proxy/uid/homelab-control-api/control` (Grafana's own
+  datasource proxy — see the "Control API" datasource in
+  `grafana/provisioning/datasources/prometheus.yml`), with `{action, node}`
+  built by the panel's `getPayload` and sent as the request body. This
+  indirection exists because the panel's REST API update mode does its own
+  browser-side `fetch()` and does **not** support `${payload.x}` template
+  substitution in the URL field — only real Grafana dashboard/global
+  variables substitute there. If the buttons stop submitting after a plugin
+  upgrade, check `getPayload` and this URL first, in that order.
