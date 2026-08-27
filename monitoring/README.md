@@ -226,7 +226,8 @@ Four layers, in order:
 2. **Hardcoded allowlist.** Only the six known node names are accepted; anything
    else is rejected before execution.
 3. **Shutdown is opt-in per node.** Blocked by default for:
-   - `sadida` — k3s control-plane and the Ollama GPU host
+   - `sadida` — k3s control-plane, the Ollama GPU host, **and the Proxmox
+     hypervisor itself**; wake is enabled (see below), shutdown is not
    - `ocra` — **runs Prometheus, Grafana and the Control API itself**; powering
      it off from its own dashboard would kill the dashboard mid-request
    - `aery` — Nextcloud and shared storage that other nodes mount
@@ -237,6 +238,55 @@ Four layers, in order:
 
 The token is stored in the Grafana **datasource** configuration, not in the
 dashboard JSON, so it stays server-side and never reaches the browser.
+
+### Adding Sadida to wake/shutdown
+
+Sadida (Proxmox hypervisor + k3s master + Ollama/GPU) was added to `wake.sh`
+and the dashboard in 2026-08, at the cost of being the most consequential
+node here to get wrong — if it does not come back from a poweroff, you lose
+the k3s API/scheduling AND the GPU AND the hypervisor itself until someone
+physically presses the power button.
+
+**Wake is enabled and safe to try directly from the dashboard** — same
+reasoning as everywhere else (see "Wake-on-demand" below): worst case it
+just doesn't respond and you go press the button yourself, no data loss.
+Sadida's MAC (`08:8f:c3:59:e9:9d`, its physical NIC bridged into `vmbr0`)
+is in `scripts/wol/wake.sh`'s `NODE_MACS`, but **Wake-on-LAN from a full
+poweroff has not been confirmed working** the way it has for every other
+node (Aery required a DKMS driver patch to get there — see
+`docs/aery-wol-alx-fix.md` — Sadida hasn't been tested at all yet). Before
+relying on it:
+
+1. Confirm WOL is enabled in Sadida's BIOS (something like "Wake on LAN" /
+   "PME event wake up" / "Power On By PCIE").
+2. From Sadida itself: `ethtool nic0` (or `sudo ethtool nic0`) and confirm
+   `Supports Wake-on: g` and `Wake-on: g` — if `Wake-on` shows something
+   else, enable it: `sudo ethtool -s nic0 wol g`, and make it persist across
+   reboots (a systemd unit or udev rule — see how `docs/aery-wol-alx-fix.md`
+   did this for Aery, same idea).
+3. Do a REAL test: `sudo poweroff` on Sadida, then `./scripts/wol/wake.sh
+   sadida` from another node (or the Wake button on the dashboard). Confirm
+   it actually comes back and rejoins k3s (`kubectl get nodes`).
+
+**Shutdown stays blocked until you deliberately set**
+`CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true` in `.env` — and this should happen
+strictly AFTER step 3 above succeeds, never before. This single variable
+gates both the Control API (`control-api/server.js`) and `shutdown.sh`
+itself directly (it checks the same env var for its hardcoded
+master-protection, so running the script by hand without exporting the
+variable first stays blocked too — the two layers cannot get out of sync).
+
+One more manual step regardless of wake/shutdown: the Control API's
+dedicated SSH key (`CONTROL_API_SSH_KEY` in `.env`) needs to be authorized
+to log in, same as it already is on sram/xelor/sacro. Sadida has no `seth`
+user — Proxmox's only account is `root` — so authorize it there instead:
+
+```bash
+ssh-copy-id -i ./secrets/control_id_ed25519.pub root@100.123.206.35
+```
+
+(`sudo shutdown -h now` over that root session works with no sudoers
+change needed — PAM lets root run `sudo` without a password.)
 
 ---
 

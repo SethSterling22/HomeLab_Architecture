@@ -8,7 +8,16 @@
 #   ./scripts/wol/wake.sh sram
 #   ./scripts/wol/wake.sh ocra
 #   ./scripts/wol/wake.sh aery
+#   ./scripts/wol/wake.sh sadida
 #   ./scripts/wol/wake.sh all
+#
+# Sadida (the Proxmox hypervisor + k3s master + GPU/Ollama host) was added
+# 2026-08 — WOL support is UNVERIFIED (no confirmed poweroff+wake round
+# trip yet, unlike every other node here). Waking it is safe to try (see
+# monitoring/README.md, "Why waking is safe by default") — worst case it
+# just doesn't come back and needs a physical power button press. Shutdown
+# for sadida stays hard-blocked in shutdown.sh regardless, independent of
+# whether wake works.
 
 set -euo pipefail
 
@@ -30,6 +39,14 @@ declare -A NODE_MACS=(
   # enp1s0f0 — the only wired interface that's actually up on Aery (wlp5s0
   # is present but down/unused). Confirmed via `ip link show` on Aery itself.
   [aery]="30:65:ec:1d:fe:f7"
+  # nic0 (Proxmox's physical NIC, bridged into vmbr0 — the bridge inherits
+  # this same MAC). wlp0s20f3 exists but is down/unused, same pattern as
+  # Aery. Confirmed via `ip a` on Sadida itself. WOL support/BIOS setting
+  # is NOT yet verified — this MAC being configured only means wake.sh CAN
+  # send the packet, not that Sadida is confirmed to receive it from a full
+  # poweroff (S5). Test with a real poweroff+wake round trip before relying
+  # on this.
+  [sadida]="08:8f:c3:59:e9:9d"
 )
 declare -A NODE_IPS=(
   [sram]="100.87.145.104"
@@ -50,6 +67,9 @@ declare -A NODE_IPS=(
   # loudly until shutdown.sh tried to SSH into the wrong host. Pinned IP
   # removes that dependency entirely.
   [aery]="100.98.226.8"
+  # Raw Tailscale IP, same reasoning as every other node above — used only
+  # for the ping-liveness check here.
+  [sadida]="100.123.206.35"
 )
 declare -A NODE_TAGS=(
   [sram]="worker 24/7"
@@ -57,6 +77,7 @@ declare -A NODE_TAGS=(
   [xelor]="on-demand · staging"
   [sacro]="on-demand · observability"
   [aery]="24/7 · Nextcloud (idle-managed)"
+  [sadida]="24/7 · Proxmox + k3s master + GPU (WOL unverified)"
 )
 
 BROADCAST="192.168.68.255"
@@ -132,7 +153,7 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all>"
   echo ""
   echo "  Available nodes:"
-  for n in sram ocra xelor sacro aery; do
+  for n in sram ocra xelor sacro aery sadida; do
     local mac="${NODE_MACS[$n]:-not configured}"
     printf "    ${BLUE}%-8s${NC}  %-18s  %-20s  %s\n" \
       "$n" "${NODE_IPS[$n]}" "$mac" "${NODE_TAGS[$n]}"
@@ -157,7 +178,7 @@ main() {
 
   if [[ "$target" == "all" ]]; then
     log "Waking all workers..."
-    for node in sram ocra xelor sacro aery; do
+    for node in sram ocra xelor sacro aery sadida; do
       [[ -n "${NODE_MACS[$node]}" ]] && wake_node "$node" &
     done
     wait

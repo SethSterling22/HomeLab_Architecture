@@ -194,7 +194,8 @@
               { "id": "xelor", "label": "Xelor (on-demand)", "value": "xelor" },
               { "id": "sacro", "label": "Sacro (on-demand, shuts down as suspend)", "value": "sacro" },
               { "id": "sram", "label": "Sram (24/7 worker)", "value": "sram" },
-              { "id": "aery", "label": "Aery (24/7 · Nextcloud, idle-managed)", "value": "aery" }
+              { "id": "aery", "label": "Aery (24/7 · Nextcloud, idle-managed)", "value": "aery" },
+              { "id": "sadida", "label": "Sadida (hypervisor + k3s master + GPU — shutdown blocked by default)", "value": "sadida" }
             ],
             "section": ""
           }

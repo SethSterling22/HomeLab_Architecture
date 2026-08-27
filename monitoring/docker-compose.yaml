@@ -122,6 +122,13 @@ services:
       # "Idle auto-shutdown". A protected node with auto-shutdown enabled but
       # broken WOL is a self-inflicted outage.
       CONTROL_API_ALLOW_SHUTDOWN_AERY: "${CONTROL_API_ALLOW_SHUTDOWN_AERY:-false}"
+      # Same idea, higher stakes: Sadida is the k3s control-plane, the
+      # Ollama GPU host, AND the Proxmox hypervisor itself. Only set this to
+      # true in .env after a REAL poweroff+WOL round trip is confirmed — see
+      # monitoring/README.md, "Adding Sadida to wake/shutdown". This same
+      # variable also gates scripts/wol/shutdown.sh's own master-protection
+      # check directly (it reads this env var too), so both layers agree.
+      CONTROL_API_ALLOW_SHUTDOWN_SADIDA: "${CONTROL_API_ALLOW_SHUTDOWN_SADIDA:-false}"
       KUBECONFIG: /home/control/.kube/config
     volumes:
       # The WOL scripts themselves, straight from this repository.

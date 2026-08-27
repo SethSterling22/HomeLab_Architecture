@@ -21,6 +21,7 @@ Scripts for remote power management of all cluster nodes from Sadida.
 | ocra | 100.107.52.17 (Tailscale — see note below) | *(no WOL — not a target)* | `shutdown -h now` | Yes |
 | xelor | 192.168.68.114 | 88:ae:1d:6c:e4:06 | `shutdown -h now` | No |
 | sacro | 192.168.68.115 | 68:f7:28:83:d6:77 | `systemctl suspend` | No |
+| sadida | 100.123.206.35 (Tailscale) | 08:8f:c3:59:e9:9d | `shutdown -h now` (blocked unless `CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true`; WOL unverified) | Yes |
 
 > **Ocra's IP is its Tailscale address, not a LAN IP.** Ocra is the only
 > WiFi-connected node here (everything else is Ethernet), and its LAN DHCP
@@ -55,6 +56,13 @@ Scripts for remote power management of all cluster nodes from Sadida.
 Each worker node requires passwordless sudo for the shutdown command so the scripts can execute remotely over SSH without an interactive terminal.
  
 ### All nodes (sram, ocra, xelor, sacro)
+
+Sadida is the exception: it has no `seth` user (Proxmox's only account is
+`root`), and root does not need a sudoers entry to run `sudo` — PAM's
+`pam_rootok.so` lets root through without a password. Nothing to configure
+there beyond authorizing the Control API's SSH key on `root`'s
+`authorized_keys` (see `monitoring/README.md`, "Adding Sadida to
+wake/shutdown").
  
 Run as root on each node:
  

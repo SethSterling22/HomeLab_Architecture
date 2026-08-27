@@ -9,14 +9,16 @@
 #   ./scripts/wol/shutdown.sh sram
 #   ./scripts/wol/shutdown.sh ocra
 #   ./scripts/wol/shutdown.sh aery
+#   ./scripts/wol/shutdown.sh sadida   # blocked unless CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true
 #   ./scripts/wol/shutdown.sh all
 #   ./scripts/wol/shutdown.sh all --skip-drain   # fast shutdown without draining
 #   ./scripts/wol/shutdown.sh xelor --yes        # non-interactive (used by the Control API)
 #
-# Note: "all" deliberately does NOT include aery (see ON_DEMAND/MASTER-style
-# exclusion below) — same reasoning as Ocra being excluded from "all": a
-# storage/Nextcloud node should never go down as a side effect of a blanket
-# sweep, only when explicitly named or when idle-shutdown decides to.
+# Note: "all" deliberately does NOT include aery or sadida (see
+# ON_DEMAND/MASTER-style exclusion below) — same reasoning as Ocra being
+# excluded from "all": a storage/Nextcloud node, or the master itself,
+# should never go down as a side effect of a blanket sweep, only when
+# explicitly named (and, for Sadida, explicitly allowed via env var too).
 
 set -euo pipefail
 
@@ -44,6 +46,9 @@ declare -A NODE_IPS=(
   # ("Network is unreachable") rather than failing loudly. Pin the raw IP
   # to remove the DNS dependency entirely, matching every other node here.
   [aery]="100.98.226.8"
+  # Raw Tailscale IP. Present here so the master-protection override below
+  # can actually work — see the "Protect the master" block in main().
+  [sadida]="100.123.206.35"
 )
 declare -A NODE_USERS=(
   [ocra]="seth"
@@ -51,11 +56,21 @@ declare -A NODE_USERS=(
   [xelor]="seth"
   [sacro]="seth"
   [aery]="seth"
+  # Proxmox's default (and in this lab, only) account is root — no `seth`
+  # user exists on Sadida. `sudo shutdown -h now` still works fine when
+  # already logged in as root: PAM's pam_rootok.so lets root run sudo
+  # without a password, so no sudoers change is needed for this node.
+  [sadida]="root"
 )
 # On-demand nodes (always drained before powering off)
 ON_DEMAND_NODES=(xelor sacro)
 
-# Sadida is the master — it is not powered off by this script
+# Sadida is the master — blocked by default (see "Protect the master" in
+# main() below). It hosts the k3s control-plane, the Ollama GPU service and
+# IS the Proxmox hypervisor itself, and unlike every other node here, a
+# poweroff+WOL round trip has NOT been confirmed working yet. Override with
+# CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true only after testing that Sadida
+# actually comes back from a real magic packet — see monitoring/README.md.
 MASTER_NODE="sadida"
 
 # ── Flags ─────────────────────────────────────────────────────────
@@ -175,10 +190,11 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all> [--skip-drain]"
   echo ""
   echo "  Available nodes:"
-  for n in ocra sram xelor sacro aery; do
+  for n in ocra sram xelor sacro aery sadida; do
     local tag=""
     is_ondemand "$n" && tag=" ${YELLOW}(on-demand)${NC}"
     [[ "$n" == "aery" ]] && tag=" ${YELLOW}(idle-managed; excluded from 'all')${NC}"
+    [[ "$n" == "sadida" ]] && tag=" ${RED}(master; blocked unless CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true)${NC}"
     printf "    ${BLUE}%-8s${NC} →  %s%b\n" "$n" "${NODE_IPS[$n]}" "$tag"
   done
   echo ""
@@ -232,9 +248,15 @@ main() {
     esac
   done
 
-  # Protect the master
-  if [[ "$target" == "$MASTER_NODE" ]]; then
-    err "Cannot power off the master '${MASTER_NODE}' with this script."
+  # Protect the master — overridable via the SAME env var the Control API
+  # checks (CONTROL_API_ALLOW_SHUTDOWN_SADIDA). When invoked BY the Control
+  # API, this variable is already in its environment and passed through to
+  # this script's own env (see runScript() in control-api/server.js), so
+  # both layers stay in sync automatically. Running this script directly
+  # from a terminal without exporting it first stays blocked — that is
+  # intentional, not a bug.
+  if [[ "$target" == "$MASTER_NODE" ]] && [[ "${CONTROL_API_ALLOW_SHUTDOWN_SADIDA:-false}" != "true" ]]; then
+    err "Cannot power off the master '${MASTER_NODE}' without an explicit override. Set CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true if you really mean it — see monitoring/README.md first."
   fi
 
   if [[ "$target" == "all" ]]; then

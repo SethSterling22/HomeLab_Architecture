@@ -56,7 +56,14 @@ const bool = (v) => /^(1|true|yes|on)$/i.test(String(v || ""));
  *   CONTROL_API_ALLOW_SHUTDOWN_AERY=true
  */
 const NODES = {
-  sadida: { wake: false, shutdown: false, tier: "always_on", note: "k3s control-plane + GPU/Ollama host" },
+  // wake: true since 2026-08 — waking is non-destructive by design (see
+  // monitoring/README.md, "Why waking is safe by default"), so it does not
+  // need the same gate as shutdown. shutdown stays false: Sadida is the
+  // k3s control-plane, the Ollama GPU host, AND the Proxmox hypervisor
+  // itself, and unlike every other overridable node here, a real
+  // poweroff+WOL round trip has not been confirmed yet. Override with
+  // CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true only after testing that.
+  sadida: { wake: true, shutdown: false, tier: "always_on", note: "k3s control-plane + GPU/Ollama host + Proxmox hypervisor — WOL unverified" },
   ocra: { wake: true, shutdown: false, tier: "always_on", note: "hosts this dashboard and the automation stack" },
   aery: { wake: true, shutdown: false, tier: "always_on", note: "Nextcloud + shared storage" },
   sram: { wake: true, shutdown: true, tier: "always_on", note: "k3s worker" },
