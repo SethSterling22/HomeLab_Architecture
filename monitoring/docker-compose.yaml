@@ -236,30 +236,39 @@ services:
       - ${CONTROL_API_KUBECONFIG:-./secrets/kubeconfig}:/home/autowake/.kube/config:ro
 
   shelly-exporter:
-    # Bridges the Shelly Gen2/Plus smart plug's own RPC API into Prometheus
-    # text format. The plug sits on the wall outlet feeding the shared power
-    # strip/UPS all the compute nodes are plugged into, so this is REAL
-    # measured wattage for the whole fleet at once — not per-node, but a
-    # ground truth to compare against node:power_watts:total (modelled) and
-    # a way to detect outages (see monitoring/prometheus/rules/shelly-power.yml).
+    # Bridges the Shelly plug's own RPC API into Prometheus text format. The
+    # plug sits on the wall outlet feeding the shared power strip/UPS all the
+    # compute nodes are plugged into, so this is REAL measured wattage for
+    # the whole fleet at once — not per-node, but a ground truth to compare
+    # against node:power_watts:total (modelled) and a way to detect outages
+    # (see monitoring/prometheus/rules/shelly-power.yml).
+    #
+    # Custom-built exporter (./shelly-gen4-exporter), NOT the shellyctl image
+    # this used to run: shellyctl has no support for Gen4 devices (its own
+    # README describes itself as a Gen2 client, and it fails with "unable to
+    # resolve device `app` to spec: unknown `app`" against this lab's Plug US
+    # Gen4). No actively-maintained alternative with confirmed Gen4 support
+    # was found either (checked 2026-08). Gen4 devices still speak the same
+    # open Gen2+ RPC API though, so this polls Switch.GetStatus directly and
+    # emits the SAME metric name shellyctl used
+    # (shelly_status_instantaneous_active_power_watts) — zero changes needed
+    # to shelly-power.yml or any dashboard panel. See
+    # shelly-gen4-exporter/shelly-gen4-exporter.js for the full reasoning,
+    # including why a real outage must still leave this container's own
+    # /metrics scrape succeeding (no shelly_status_* lines, not a 5xx).
     #
     # No special networking needed here: unlike control-api, this only makes
     # outbound unicast calls to the plug's LAN IP, which works fine over the
     # default bridge network.
-    image: ghcr.io/jcodybaker/shellyctl:latest
+    build:
+      context: ./shelly-gen4-exporter
+    image: homelab-shelly-gen4-exporter:local
     container_name: homelab_shelly_exporter
     restart: unless-stopped
-    command:
-      - "prometheus"
-      - "--bind-addr=0.0.0.0"
-      - "--bind-port=8080"
-      - "--host=${SHELLY_PSU_URL:?set SHELLY_PSU_URL in .env, e.g. http://192.168.68.50/}"
+    environment:
+      SHELLY_PSU_URL: "${SHELLY_PSU_URL:?set SHELLY_PSU_URL in .env, e.g. http://192.168.68.50}"
     ports:
       - "8091:8080"
-    # No healthcheck: this image is built FROM scratch (just the Go binary,
-    # no shell/wget/curl), so there is nothing to exec a check with. Reachability
-    # is instead verified externally by the Prometheus `shelly-power` scrape
-    # job's own `up` metric.
 
   nut-exporter:
     # Bridges the CyberPower S175UC UPS's status into Prometheus text format,

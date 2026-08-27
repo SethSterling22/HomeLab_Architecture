@@ -161,8 +161,9 @@ scrape_configs:
           node: ocra
 
   # ── Shelly power meter (Phase 3 — real measured wattage) ────────
-  # shelly-exporter (shellyctl) polls the Gen2/Plus plug's RPC API and
-  # re-exposes it here. It is on the same Docker bridge network as
+  # shelly-exporter (custom-built, monitoring/shelly-gen4-exporter/ — see
+  # its comments for why this isn't the shellyctl image) polls the plug's
+  # RPC API and re-exposes it here. It is on the same Docker bridge network as
   # Prometheus (no host networking needed, unlike control-api), so the
   # compose service name resolves directly.
   #

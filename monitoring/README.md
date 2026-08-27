@@ -128,11 +128,19 @@ scp sadida:/etc/rancher/k3s/k3s.yaml ./secrets/kubeconfig
 
 ### 2b. Set up the Shelly power meter (Phase 3, optional but recommended)
 
-A Shelly Gen2/Plus smart plug, wired into the wall outlet feeding the shared
-power strip/UPS all the compute nodes plug into, gives you REAL measured
-wattage for the whole fleet at once — no per-node calibration needed (see
+A Shelly smart plug, wired into the wall outlet feeding the shared power
+strip/UPS all the compute nodes plug into, gives you REAL measured wattage
+for the whole fleet at once — no per-node calibration needed (see
 `docs/power-calibration.md` for that alternative if you ever want per-node
 numbers instead of a fleet total).
+
+> This lab's plug is a **Gen4** (Plug US Gen4). The `shelly-exporter`
+> service builds a small custom exporter (`shelly-gen4-exporter/`) instead
+> of using the `shellyctl` image, because shellyctl has no Gen4 support (its
+> device-spec resolver fails with `unknown \`app\``) — see the comments atop
+> `docker-compose.yaml`'s `shelly-exporter` service for the full story. If
+> you're using an older Gen2/Gen3 Shelly instead, either exporter works;
+> both emit the same `shelly_status_*` metric names.
 
 1. Wire the Shelly in: wall outlet → Shelly plug → power strip/UPS → nodes.
 2. Give it a **static LAN IP or DHCP reservation** — the exporter config
@@ -483,6 +491,10 @@ monitoring/
 │   ├── rules/power-model.yml      # ⭐ per-node watt constants — edit to calibrate
 │   ├── rules/shelly-power.yml     # real measured watts + outage detection
 │   └── tests/                     # promtool unit tests (power-model, shelly-power)
+├── shelly-gen4-exporter/          # Custom exporter for the Shelly plug (shellyctl has no Gen4 support)
+│   ├── shelly-gen4-exporter.js
+│   ├── package.json
+│   └── Dockerfile
 ├── grafana/
 │   ├── provisioning/              # datasources + dashboard provider
 │   └── dashboards/homelab-control.json

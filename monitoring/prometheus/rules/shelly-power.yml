@@ -12,11 +12,15 @@
 #   2. Outage detection. Ocra sits on a SEPARATE circuit/UPS from the
 #      monitored nodes (confirmed setup), so when the plug loses power it
 #      goes fully dark — no network, no RPC response — while Ocra/Prometheus
-#      keep running and keep scraping. The shellyctl exporter's own `up`
-#      metric stays 1 the whole time (Ocra can still reach ITS container);
-#      what disappears is the shelly_status_* series themselves, because
-#      shellyctl can no longer reach the physical device. That absence IS
-#      the outage signal — see lab:grid_status:up below.
+#      keep running and keep scraping. shelly-exporter's own `up` metric
+#      (the Prometheus target health, not a device metric) stays 1 the whole
+#      time (Ocra can still reach ITS container); what disappears is the
+#      shelly_status_* series themselves, because the exporter can no longer
+#      reach the physical device. That absence IS the outage signal — see
+#      lab:grid_status:up below. (Exporter is monitoring/shelly-gen4-exporter/
+#      — a custom build, not the shellyctl image; see its own header comment
+#      for why. It preserves this exact "still up, but no data" behavior on
+#      purpose.)
 
 groups:
   - name: shelly-power
