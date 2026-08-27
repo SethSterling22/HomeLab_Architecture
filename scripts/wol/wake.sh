@@ -35,7 +35,14 @@ declare -A NODE_IPS=(
   [sram]="100.87.145.104"
   [xelor]="100.92.255.18"
   [sacro]="100.127.196.32"
-  [ocra]="192.168.68.100"
+  # Raw Tailscale IP, not the LAN IP. Ocra is the one node connected over
+  # WiFi rather than Ethernet (see scripts/wol/README.md, "How WOL Works"),
+  # and its LAN DHCP lease has been observed drifting (192.168.68.100 ->
+  # .103) — same class of problem the MagicDNS hostnames had elsewhere in
+  # this repo, just at the LAN-IP layer instead of DNS. This IP is only
+  # ever used here for the ping-liveness check, never for the WOL magic
+  # packet itself (Ocra has no WOL support — see the "all" loop below).
+  [ocra]="100.107.52.17"
   # Raw Tailscale IP, same as the other nodes (from `tailscale status`).
   # The MagicDNS hostname (aery.stegosaurus-panga.ts.net) used to work here
   # but silently started resolving to an unrelated public anycast IP instead

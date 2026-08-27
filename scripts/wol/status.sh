@@ -13,7 +13,11 @@ declare -A NODES=(
   [sadida]="192.168.68.10"
   [aery]="192.168.68.190"
   [sram]="192.168.68.108"
-  [ocra]="192.168.68.100"
+  # Raw Tailscale IP, not the LAN IP — Ocra is WiFi-connected (every other
+  # node here is on Ethernet) and its LAN DHCP lease drifts over time
+  # (observed: 192.168.68.100 -> .103). Matches scripts/wol/wake.sh and
+  # shutdown.sh, which made the same switch for the same reason.
+  [ocra]="100.107.52.17"
   [xelor]="192.168.68.114"
   [sacro]="192.168.68.115"
 )

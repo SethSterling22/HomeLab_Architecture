@@ -39,7 +39,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 |------|--------|------|
 | Sadida (Proxmox) | `192.168.68.10` | k3s control-plane · Ollama |
 | Aery (Debian) | `192.168.68.190` | Nextcloud · NFS server · k3s worker |
-| Ocra | `192.168.68.100` | AI brain (Docker Compose) · k3s worker |
+| Ocra | `100.107.52.17` (Tailscale — WiFi, LAN IP drifts) | AI brain (Docker Compose) · k3s worker |
 | Sram | `192.168.68.108` | k3s worker |
 | Xelor | `192.168.68.114` | k3s worker (on-demand) |
 | Sacro | `192.168.68.115` | k3s worker (on-demand) |
@@ -66,7 +66,7 @@ Internet
           └── Gigabit Ethernet Switch
                  ├── Sadida     192.168.68.10   (Proxmox + k3s master + Ollama)
                  ├── Aery       192.168.68.190  (Debian · Nextcloud · NFS · k3s worker)
-                 ├── Ocra       192.168.68.100  (AI brain — Docker Compose)
+                 ├── Ocra       100.107.52.17 Tailscale (AI brain — Docker Compose; WiFi, LAN IP drifts)
                  ├── Sram       192.168.68.108  (k3s worker)
                  ├── Xelor      192.168.68.114  (k3s worker, on-demand)
                  └── Sacro      192.168.68.115  (k3s worker, on-demand)
@@ -144,7 +144,7 @@ graph TB
     end
 
     subgraph workers_24["🔵 Nodes 24/7"]
-        OCRA["🧠 Ocra\nDocker Compose brain\nn8n + Hermes + postgres\n192.168.68.100"]
+        OCRA["🧠 Ocra\nDocker Compose brain\nn8n + Hermes + postgres\n100.107.52.17 (Tailscale — WiFi)"]
         SRAM["💻 Sram\nDebian 13 · k3s worker\n192.168.68.108"]
     end
 

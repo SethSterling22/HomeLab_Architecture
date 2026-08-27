@@ -36,7 +36,13 @@ all:
     compose_brain:
       hosts:
         ocra:
-          ansible_host: 192.168.68.100
+          # Raw Tailscale IP, not the LAN IP. Ocra is the only WiFi-connected
+          # node in this lab (everything else is Ethernet), and its LAN DHCP
+          # lease has been observed drifting (192.168.68.100 -> .103) — the
+          # same reliability problem the MagicDNS hostnames had elsewhere,
+          # just at the LAN-IP layer. If you SSH into Ocra from a machine
+          # that is not on the tailnet, use its current LAN IP instead.
+          ansible_host: 100.107.52.17
           ansible_user: seth
           role: docker_compose        # n8n + hermes-gateway + postgres
 
