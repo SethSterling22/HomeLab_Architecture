@@ -3,7 +3,7 @@
 Prometheus + Grafana + a small Control API, running on **Ocra**. Gives you one
 page to see the fleet's health and energy cost, and to power nodes on and off.
 
-Implements **Phases 0, 1, 2 and 3** of `docs/monitoring-stack-plan.md`.
+Implements **Phases 0, 1, 2, 3 and 4** of `docs/monitoring-stack-plan.md`.
 
 ## What you get
 

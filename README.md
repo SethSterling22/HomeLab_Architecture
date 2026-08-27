@@ -108,6 +108,10 @@ one page for fleet health, energy cost, and graphical power control.
   real fleet-wide measurement from a Shelly smart plug on the shared power
   strip/UPS — compared live against the model, and doubling as an outage
   detector.
+- **Battery backup** — live on-line/on-battery status, charge % and load %
+  from a CyberPower S175UC UPS (wired via USB into Aery, queried remotely
+  over Tailscale via NUT — see `docs/nut-ups-monitoring.md`). A smaller,
+  different subset of nodes than the Shelly plug above.
 - **Control** — wake/shutdown buttons that call a token-authenticated Control
   API wrapping `scripts/wol/*`. Shutdown is blocked by default for Sadida, Ocra
   and Aery; Ocra especially, since it hosts the dashboard itself.
@@ -158,6 +162,11 @@ graph TB
         TAILSCALE["Tailscale Mesh VPN\nAll nodes connected"]
     end
 
+    subgraph power["⚡ Power Monitoring (Phase 3/4)"]
+        SHELLY["🔌 Shelly Plug (Gen4)\nWhole-fleet real wattage\nshared power strip/UPS"]
+        UPS["🔋 CyberPower S175UC UPS\nBattery backup for a subset\nof Sadida/Sram/Sacro/Aery"]
+    end
+
     OCRA -->|Ollama API :11434| SADIDA
     SADIDA -->|k3s API| SRAM
     SADIDA -->|k3s API| AERY
@@ -177,6 +186,10 @@ graph TB
     TAILSCALE --- XELOR
     TAILSCALE --- SACRO
     TAILSCALE --- AERY
+
+    SHELLY -.->|HTTP RPC, real watts| OCRA
+    UPS -.->|USB| AERY
+    AERY -.->|NUT :3493 over Tailscale| OCRA
 ```
 
 ### AI Service Flow

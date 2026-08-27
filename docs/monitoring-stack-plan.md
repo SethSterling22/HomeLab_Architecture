@@ -42,12 +42,14 @@ even when Sadida-hosted workloads or the on-demand nodes are down. The k3s
             │        │      │                                                              │
  each node  │        │      └────►  Grafana  ──(Button Panel plugin)──►  Control API       │
  exporters ─┤        │                                              (wraps scripts/wol/*)  │
-            │        └─────────────────────────────────────────────────────────────────────┘
-            │
-   ┌────────┴───────────────────────────────────────────────┐
-   │ node_exporter + process-exporter on every Linux node    │
-   │ nvidia GPU exporter on Sadida (real GPU watts)          │
-   └─────────────────────────────────────────────────────────┘
+            │        └───────────────────────▲───────────────────────▲─────────────────────┘
+            │                                 │ scrapes               │ scrapes
+   ┌────────┴──────────────────────┐   ┌──────┴────────────┐   ┌──────┴────────────────────┐
+   │ node_exporter +                │   │ shelly-exporter    │   │ nut-exporter               │
+   │ process-exporter on every node │   │ (on Ocra) ← Shelly  │   │ (on Ocra) ← upsd (on Aery)  │
+   │ nvidia GPU exporter on Sadida  │   │ plug, real fleet    │   │ ← CyberPower S175UC UPS,    │
+   │ (real GPU watts)               │   │ wattage (Phase 3)   │   │ USB→Aery, TCP 3493 (Phase 4)│
+   └─────────────────────────────────┘   └─────────────────────┘   └──────────────────────────────┘
 ```
 
 ---
@@ -243,10 +245,12 @@ variable covers the tariff side of the cost calculator.
 | **1** | Control API on Ocra wrapping `scripts/wol/*` + Grafana buttons for wake/shutdown/status. | ✅ Done — `monitoring/control-api/` | 0 |
 | **2** | `process-exporter` (per-process CPU/memory — "what is running") + nvidia GPU exporter on Sadida (**real** GPU watts, the only measured power in the model). | ✅ Done — `ansible/playbooks/monitoring.yml`, `monitoring/prometheus/prometheus.yml`, dashboard panels | 0 |
 | **3** | **Real measurement.** A Shelly Gen2/Plus smart plug on the shared power strip/UPS gives real fleet-wide watts (`lab:power_watts:measured`) to compare against the model, plus outage detection — no per-node stress testing needed. | ✅ Done — `monitoring/prometheus/rules/shelly-power.yml`, dashboard row "Grid power". Per-node calibration (`docs/power-calibration.md`) remains available if per-node numbers are ever wanted instead of a fleet total. | 0 |
-| **4** | Refined power model (factor in disk and network I/O, which matter for Aery) + efficiency dashboard: kWh per 1k requests, watts per active core-hour, month-over-month comparison. | Open | 2, 3 |
+| **4** | **Battery backup visibility.** A CyberPower S175UC UPS (wired via USB into Aery, a different/smaller subset of nodes than the Shelly plug) reports on-line/on-battery status, charge % and load % via NUT — read-only, no coordinated automatic shutdown yet. | ✅ Done — `ansible/playbooks/nut-ups.yml`, `monitoring/prometheus/prometheus.yml`'s `nut-ups` job, dashboard row "UPS". See `docs/nut-ups-monitoring.md`, including its "Not done yet" section on wiring a real power event to the Control API's shutdown path. | 0 |
+| **5** | Refined power model (factor in disk and network I/O, which matter for Aery) + efficiency dashboard: kWh per 1k requests, watts per active core-hour, month-over-month comparison. | Open | 2, 3 |
 
-**Do Phase 3 before Phase 4.** Refining the maths of a model whose constants are
-guesses is polishing sand — calibration buys far more accuracy for far less work.
+**Do Phase 3 (and 4) before Phase 5.** Refining the maths of a model whose
+constants are guesses is polishing sand — calibration buys far more accuracy
+for far less work.
 
 ### Removed
 
@@ -257,6 +261,11 @@ separate dashboard, no special case anywhere in the config.
 
 > Note: phases were renumbered when that step was removed. What earlier drafts
 > of this document called phases 4, 1, 5 and 3 are now 1, 2, 3 and 4.
+>
+> Renumbered again when UPS/NUT monitoring was added: what used to be Phase 4
+> ("refined power model") is now Phase 5. The new Phase 4 is the UPS work,
+> matching the "Phase 4" label already used in `docs/nut-ups-monitoring.md`
+> and `monitoring/README.md`.
 
 ---
 
