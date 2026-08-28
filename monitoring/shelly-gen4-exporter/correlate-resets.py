@@ -94,6 +94,29 @@ def main() -> int:
             pass
         print(f"{when:<21} {before:>12.2f} {after:>11.2f}   {ups_status}")
 
+    if len(resets) >= 2:
+        gaps = [resets[i][0] - resets[i - 1][0] for i in range(1, len(resets))]
+        avg_gap = sum(gaps) / len(gaps)
+        min_gap, max_gap = min(gaps), max(gaps)
+        last_ts = resets[-1][0]
+
+        def fmt_hm(seconds: float) -> str:
+            h, m = divmod(int(seconds // 60), 60)
+            return f"{h}h{m:02d}m"
+
+        print()
+        print(
+            f"Interval between resets: avg {fmt_hm(avg_gap)}  "
+            f"(min {fmt_hm(min_gap)}, max {fmt_hm(max_gap)}) -- "
+            f"{'irregular, treat as a rough window, not a schedule' if (max_gap - min_gap) > avg_gap * 0.5 else 'fairly consistent'}"
+        )
+        earliest = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_ts + min_gap))
+        expected = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_ts + avg_gap))
+        latest = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_ts + max_gap))
+        print(f"Next reset projected between {earliest} and {latest} (average case: {expected})")
+        if time.time() > last_ts + max_gap:
+            print("(that window has already passed without a new reset showing up in this run's data)")
+
     return 0
 
 
