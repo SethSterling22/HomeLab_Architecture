@@ -897,7 +897,7 @@
       "title": "Grid power now",
       "description": "Real measured watts from the Shelly plug feeding the shared power strip/UPS — the whole fleet at once, not modelled.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 66 },
+      "gridPos": { "h": 6, "w": 5, "x": 0, "y": 66 },
       "targets": [
         {
           "refId": "A",
@@ -923,7 +923,7 @@
       "title": "Grid status",
       "description": "ONLINE while the Shelly plug responds. Reads POWER OUT the moment it stops responding — this is a real outage signal, not a guess, because Ocra runs on a separate circuit/UPS and keeps scraping throughout.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 66 },
+      "gridPos": { "h": 6, "w": 5, "x": 5, "y": 66 },
       "targets": [
         {
           "refId": "A",
@@ -964,7 +964,7 @@
       "title": "Measured vs modelled",
       "description": "Real watts minus the software model's estimate. Positive = model is underestimating the fleet's true draw; negative = overestimating. This is a live, continuous replacement for the one-off per-node stress-ng calibration in docs/power-calibration.md.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 66 },
+      "gridPos": { "h": 6, "w": 5, "x": 10, "y": 66 },
       "targets": [
         {
           "refId": "A",
@@ -997,12 +997,45 @@
       "title": "Measured cost in range (real)",
       "description": "Uses the Shelly's own cumulative energy counter (increase(), not an average-watts approximation), so this is exact for the selected range — not modelled.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 66 },
+      "gridPos": { "h": 6, "w": 5, "x": 15, "y": 66 },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
           "expr": "increase(shelly_status_total_energy_watt_hours[$__range]) / 1000 * $rate_usd_kwh",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 77,
+      "type": "stat",
+      "title": "Projected monthly cost (real)",
+      "description": "Extrapolates the last 24h of REAL measured energy (the Shelly's own cumulative counter, not average watts) to a 730-hour month — same 730h convention as the modelled 'Projected monthly cost' panel, but built on the Shelly's real measurement instead of power-model.yml's estimates. A projection from recent behaviour, not a measured bill.",
+      "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 66 },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
+          "expr": "increase(shelly_status_total_energy_watt_hours[24h]) * (730/24) / 1000 * $rate_usd_kwh",
           "instant": true
         }
       ],
