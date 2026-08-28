@@ -495,7 +495,8 @@ monitoring/
 │   ├── shelly-gen4-exporter.js
 │   ├── package.json
 │   ├── Dockerfile
-│   └── diag.sh                    # Terminal diagnostic: uptime, live errors, auto-recovery config, counter resets
+│   ├── diag.sh                    # Terminal diagnostic: uptime, live errors, auto-recovery config, counter resets
+│   └── correlate-resets.py        # Cross-checks each energy-counter reset against the UPS's on-battery flag
 ├── grafana/
 │   ├── provisioning/              # datasources + dashboard provider
 │   └── dashboards/homelab-control.json
