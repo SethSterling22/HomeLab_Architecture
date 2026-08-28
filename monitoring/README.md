@@ -494,7 +494,8 @@ monitoring/
 ├── shelly-gen4-exporter/          # Custom exporter for the Shelly plug (shellyctl has no Gen4 support)
 │   ├── shelly-gen4-exporter.js
 │   ├── package.json
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── diag.sh                    # Terminal diagnostic: uptime, live errors, auto-recovery config, counter resets
 ├── grafana/
 │   ├── provisioning/              # datasources + dashboard provider
 │   └── dashboards/homelab-control.json
