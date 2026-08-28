@@ -995,14 +995,14 @@
       "id": 44,
       "type": "stat",
       "title": "Measured cost in range (real)",
-      "description": "Uses the Shelly's own cumulative energy counter (increase(), not an average-watts approximation), so this is exact for the selected range — not modelled.",
+      "description": "avg_over_time on the real measured watts (lab:power_watts:measured), same method as the modelled cost panels — not modelled data, but also not the Shelly's raw cumulative energy counter. Switched away from increase() on that counter after finding it prone to sub-1Wh non-monotonic dips (likely a beta-firmware quirk around output relay cycling) that Prometheus's counter-reset compensation amplified into wildly inflated cost numbers. See monitoring/shelly-gen4-exporter/correlate-resets.py for the investigation.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
       "gridPos": { "h": 6, "w": 5, "x": 15, "y": 66 },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-          "expr": "increase(shelly_status_total_energy_watt_hours[$__range]) / 1000 * $rate_usd_kwh",
+          "expr": "avg_over_time(lab:power_watts:measured[$__range]) * ($__range_s / 3600) / 1000 * $rate_usd_kwh",
           "instant": true
         }
       ],
@@ -1028,14 +1028,14 @@
       "id": 77,
       "type": "stat",
       "title": "Projected monthly cost (real)",
-      "description": "Extrapolates the last 24h of REAL measured energy (the Shelly's own cumulative counter, not average watts) to a 730-hour month — same 730h convention as the modelled 'Projected monthly cost' panel, but built on the Shelly's real measurement instead of power-model.yml's estimates. A projection from recent behaviour, not a measured bill.",
+      "description": "Extrapolates the last 24h average of REAL measured watts (lab:power_watts:measured) to a 730-hour month — same 730h convention and avg_over_time method as the modelled 'Projected monthly cost' panel, just built on the Shelly's real measurement instead of power-model.yml's estimates. A projection from recent behaviour, not a measured bill. Deliberately NOT based on the Shelly's cumulative energy counter (see monitoring/shelly-gen4-exporter/correlate-resets.py): that counter has sub-1Wh non-monotonic dips roughly every 4h (likely beta-firmware relay-cycling behavior) that Prometheus's counter-reset compensation was amplifying into a hugely inflated number.",
       "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
       "gridPos": { "h": 6, "w": 4, "x": 20, "y": 66 },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "homelab-prometheus" },
-          "expr": "increase(shelly_status_total_energy_watt_hours[24h]) * (730/24) / 1000 * $rate_usd_kwh",
+          "expr": "avg_over_time(lab:power_watts:measured[24h]) * 730 / 1000 * $rate_usd_kwh",
           "instant": true
         }
       ],

@@ -496,7 +496,8 @@ monitoring/
 │   ├── package.json
 │   ├── Dockerfile
 │   ├── diag.sh                    # Terminal diagnostic: uptime, live errors, auto-recovery config, counter resets
-│   └── correlate-resets.py        # Cross-checks each energy-counter reset against the UPS's on-battery flag
+│   ├── correlate-resets.py        # Cross-checks each energy-counter reset against the UPS's on-battery flag
+│   └── udp-log-listener.py        # Captures the Shelly's own debug log stream (Sys.SetConfig debug.udp.addr)
 ├── grafana/
 │   ├── provisioning/              # datasources + dashboard provider
 │   └── dashboards/homelab-control.json
