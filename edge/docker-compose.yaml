@@ -60,7 +60,9 @@ services:
       PGID: "1000"
       TZ: "America/Puerto_Rico"
     volumes:
-      - ./ddclient/ddclient.conf:/config/ddclient.conf:ro
+      # NOT :ro -- the linuxserver.io init script chmods this file on
+      # startup; read-only breaks it with "Read-only file system".
+      - ./ddclient/ddclient.conf:/config/ddclient.conf
 
 volumes:
   caddy_data:
