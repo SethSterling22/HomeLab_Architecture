@@ -1,0 +1,39 @@
+# edge/Caddyfile
+#
+# One site block per exposed port. Every block below shares the same
+# hostname (NOIP_HOSTNAME), so Caddy obtains and renews a SINGLE
+# certificate for that hostname and reuses it across every port — you are
+# not paying an extra cert per service.
+#
+# To add a new service:
+#   1. Copy a block below, change the port and the backend.
+#   2. Add the matching port to edge/docker-compose.yaml's `caddy.ports`.
+#   3. Forward that port on your router to Ocra.
+#   4. docker compose up -d --force-recreate caddy
+#
+# Backends are addressed by Tailscale IP, not LAN IP or hostname — same
+# reasoning as everywhere else in this repo (see monitoring/prometheus/
+# prometheus.yml's header comment): LAN IPs drift, and MagicDNS has been
+# unreliable from Ocra specifically.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# ── Nextcloud (Aery) ────────────────────────────────────────────────
+# Routed through wake-proxy (monitoring/wake-proxy/), NOT directly to
+# Aery, so public visitors get the same auto-wake-on-demand + holding
+# page behavior that internal/Tailscale clients already get. wake-proxy
+# also rewrites the Host header to Aery's own trusted hostname:port, so
+# the only thing needed on the Nextcloud side is adding this No-IP
+# hostname to trusted_domains — see README.md for the exact config.
+{$NOIP_HOSTNAME}:8443 {
+	reverse_proxy 100.107.52.17:8093
+}
+
+# ── Template for the next service ──────────────────────────────────
+# Uncomment and fill in once you know what you're exposing next.
+#
+# {$NOIP_HOSTNAME}:9443 {
+# 	reverse_proxy <backend-tailscale-ip>:<backend-port>
+# }

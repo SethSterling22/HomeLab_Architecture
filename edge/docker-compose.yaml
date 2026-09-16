@@ -1,0 +1,67 @@
+# edge/docker-compose.yaml
+#
+# Public-internet-facing reverse proxy for whichever HomeLab services you
+# choose to expose beyond Tailscale/LAN. Caddy terminates TLS (automatic
+# Let's Encrypt certificates, renewed on its own) and routes each exposed
+# port to a backend, reached over Tailscale — same DNS-reliability
+# reasoning documented throughout monitoring/ (see prometheus.yml's header
+# comment). ddclient keeps a No-IP hostname pointed at whatever public IP
+# your ISP hands you today, since home connections rarely have a static one.
+#
+# Deliberately a SEPARATE compose project from monitoring/: this is the
+# one piece of the stack intentionally reachable from the public internet,
+# so it stays easy to reason about, audit, and tear down on its own,
+# without touching anything internal-only.
+#
+# Runs on Ocra (24/7), same placement reasoning as everything else that
+# must always be reachable — see monitoring/docker-compose.yaml's header.
+#
+#   cd edge && cp .env.example .env && cp ddclient/ddclient.conf.example ddclient/ddclient.conf
+#   $EDITOR .env ddclient/ddclient.conf
+#   docker compose up -d
+#
+# Read README.md in this directory BEFORE opening anything on your router.
+# It covers the port-forwarding steps (this repo cannot touch your router
+# for you), the Nextcloud-side config needed for the example below, and
+# the security tradeoffs of exposing home services to the internet —
+# including a list of things that must NEVER be routed through this stack
+# (Proxmox, SSH, the k3s API, the Control API).
+
+services:
+  # Reverse proxy + automatic TLS. Only this container needs router
+  # port-forwards pointed at it.
+  caddy:
+    image: caddy:2-alpine
+    container_name: homelab_edge_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"      # ACME HTTP-01 challenge only (cert issue/renew) — not a proxied site itself
+      - "8443:8443"  # Nextcloud (Aery), routed via wake-proxy — see Caddyfile
+      # Add one line here per new exposed service, matching the port you
+      # add to the Caddyfile and the port you forward on your router.
+    environment:
+      ACME_EMAIL: "${ACME_EMAIL:?set ACME_EMAIL in .env}"
+      NOIP_HOSTNAME: "${NOIP_HOSTNAME:?set NOIP_HOSTNAME in .env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data     # Let's Encrypt certs + Caddy's own state, persisted across restarts
+      - caddy_config:/config
+
+  # Keeps NOIP_HOSTNAME pointed at this network's current public IP.
+  # No network_mode: host needed — it only ever makes outbound calls to
+  # No-IP's own update API, same reasoning as nut-exporter/shelly-exporter
+  # in monitoring/docker-compose.yaml.
+  ddclient:
+    image: lscr.io/linuxserver/ddclient:latest
+    container_name: homelab_edge_ddclient
+    restart: unless-stopped
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: "America/Puerto_Rico"
+    volumes:
+      - ./ddclient/ddclient.conf:/config/ddclient.conf:ro
+
+volumes:
+  caddy_data:
+  caddy_config:

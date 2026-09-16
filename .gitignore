@@ -15,6 +15,10 @@ ansible/inventory/group_vars/all.yml
 monitoring/secrets/*
 !monitoring/secrets/.gitkeep
 
+# No-IP credentials for the public edge reverse proxy (plaintext password)
+edge/ddclient/ddclient.conf
+!edge/ddclient/ddclient.conf.example
+
 # OS noise
 .DS_Store
 node_modules/

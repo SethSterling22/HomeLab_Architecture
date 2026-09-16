@@ -12,6 +12,7 @@ The AI layer follows a simple split: **Ollama runs locally on Sadida** (the only
 - [Network Architecture](#network-architecture)
 - [AI Stack](#ai-stack)
 - [Monitoring & Node Control](#monitoring--node-control)
+- [Public Access (No-IP + Caddy)](#public-access-no-ip--caddy)
 - [Diagrams](#diagrams)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
@@ -133,6 +134,31 @@ Grafana: `http://ocra.stegosaurus-panga.ts.net:3000` → folder **HomeLab**.
 > documented in `docs/power-calibration.md` if that breakdown ever needs to
 > be trustworthy. See `monitoring/README.md` and `docs/monitoring-stack-plan.md`
 > for everything else.
+
+---
+
+## Public Access (No-IP + Caddy)
+
+`edge/` is the one part of this lab intentionally reachable from the public
+internet — everywhere else, access is deliberately restricted to Tailscale
+or the LAN. It's a small, separate Docker Compose stack on Ocra: **Caddy**
+reverse-proxies exposed services with automatic Let's Encrypt TLS, and
+**ddclient** keeps a free **No-IP** dynamic-DNS hostname pointed at whatever
+public IP the ISP hands out. The one service wired up today is Nextcloud,
+routed through the existing `wake-proxy` so public visitors get the same
+auto-wake-on-demand behavior internal clients already get.
+
+```bash
+cd edge && cp .env.example .env && cp ddclient/ddclient.conf.example ddclient/ddclient.conf
+$EDITOR .env ddclient/ddclient.conf
+docker compose up -d
+```
+
+See `edge/README.md` before opening anything on your router — it covers the
+port-forwarding steps (this repo can't touch your router for you), the
+Nextcloud-side config the example needs, how to add another service, and a
+short list of things that must **never** be exposed this way (Proxmox, SSH,
+the k3s API, the Control API).
 
 ---
 
@@ -457,6 +483,10 @@ homelab/
 │   │   └── tests/                   ← promtool unit tests for the power model
 │   ├── grafana/                     ← Provisioned datasources + dashboard JSON
 │   └── control-api/                 ← Token-auth wrapper around scripts/wol/*
+├── edge/                             ← Public-internet-facing reverse proxy (Ocra only)
+│   ├── docker-compose.yaml          ← Caddy (auto TLS) + ddclient (No-IP updater)
+│   ├── Caddyfile                    ← One site block per exposed port
+│   └── ddclient/ddclient.conf.example
 ├── k3s/
 │   └── manifests/
 │       ├── namespaces/              ← Cluster namespaces (ai, monitoring, storage)
@@ -492,3 +522,4 @@ homelab/
 - Recommended Tailscale ACLs: only Sadida has access to the full subnet route.
 - SSH on all nodes: public key authentication only, root login disabled.
 - NFS export is restricted to `192.168.68.0/24` and `100.0.0.0/8` (Tailscale range).
+- `edge/` is the only intentional exception to "everything is Tailscale/LAN-only" — see `edge/README.md`'s security section for what must never be routed through it (Proxmox, SSH, the k3s API, the Control API).

@@ -1,0 +1,15 @@
+# edge/ddclient/ddclient.conf.example
+#
+# Copy to ddclient.conf and fill in your real No-IP credentials:
+#   cp ddclient.conf.example ddclient.conf
+#
+# ddclient.conf is gitignored — it holds a plaintext password, never commit it.
+
+protocol=noip
+use=web, web=checkip.dyndns.com/, web-skip='IP Address'
+server=dynupdate.no-ip.com
+login=your-noip-username
+password='your-noip-password'
+ssl=yes
+daemon=300
+your-hostname.ddns.net
