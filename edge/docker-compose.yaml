@@ -37,8 +37,15 @@ services:
     ports:
       - "80:80"      # ACME HTTP-01 challenge only (cert issue/renew) — not a proxied site itself
       - "8443:8443"  # Nextcloud (Aery), routed via wake-proxy — see Caddyfile
-      # Add one line here per new exposed service, matching the port you
-      # add to the Caddyfile and the port you forward on your router.
+      # Reserved range for future services -- already forwarded on the
+      # router (see edge/README.md), so adding a new service only needs a
+      # Caddyfile block, not another trip to the router. Pick the next
+      # free one and add its matching block in Caddyfile.
+      - "8444:8444"  # free
+      - "8445:8445"  # free
+      - "8446:8446"  # free
+      - "8447:8447"  # free
+      - "8448:8448"  # free
     environment:
       ACME_EMAIL: "${ACME_EMAIL:?set ACME_EMAIL in .env}"
       NOIP_HOSTNAME: "${NOIP_HOSTNAME:?set NOIP_HOSTNAME in .env}"

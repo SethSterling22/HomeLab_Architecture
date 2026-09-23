@@ -32,8 +32,11 @@
 }
 
 # ── Template for the next service ──────────────────────────────────
-# Uncomment and fill in once you know what you're exposing next.
+# Ports 8444-8448 are already forwarded on the router (see
+# edge/README.md and docker-compose.yaml's `caddy.ports`) as a reserved
+# range, so adding a service here is the ONLY step left -- no router
+# trip needed. Uncomment, pick the next free port, fill in the backend.
 #
-# {$NOIP_HOSTNAME}:9443 {
+# {$NOIP_HOSTNAME}:8444 {
 # 	reverse_proxy <backend-tailscale-ip>:<backend-port>
 # }

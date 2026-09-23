@@ -56,10 +56,11 @@ Forward these to **Ocra's LAN IP**:
 | --- | --- | --- |
 | 80 | 80 | ACME HTTP-01 challenge only — required for Caddy to get/renew certs. Do not remove this even if you don't expose anything on plain HTTP. |
 | 8443 | 8443 | Nextcloud (the example already wired up in Caddyfile) |
+| 8444-8448 | 8444-8448 | Reserved for future services (already mapped in `docker-compose.yaml`'s `caddy.ports`) — forward these now so adding a new service later is Caddyfile-only, no second trip to the router. |
 
-Add one more row here (matching a new Caddyfile block) each time you expose
-another service. Exact steps depend on your router's UI — look for "Port
-Forwarding" or "Virtual Server," and forward TCP for all of these.
+Exact steps depend on your router's UI — look for "Port Forwarding" or
+"Virtual Server," and forward TCP for all of these to Ocra's LAN IP. If
+you ever need more than the reserved range, add more rows the same way.
 
 ## 4. Nextcloud-side configuration (required for the example)
 
