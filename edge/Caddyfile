@@ -40,3 +40,5 @@
 # {$NOIP_HOSTNAME}:8444 {
 # 	reverse_proxy <backend-tailscale-ip>:<backend-port>
 # }
+#
+# sudo docker compose up -d --force-recreate caddy
