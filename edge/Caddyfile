@@ -31,23 +31,12 @@
 	reverse_proxy 100.107.52.17:8093
 }
 
-# ── TEMP diagnostic block ────────────────────────────────────────────
-# Grafana, reached over Ocra's own LAN IP (not Tailscale, not wake-proxy)
-# — purely to test whether the public path (router → Ocra → Caddy)
-# works at all, independent of Tailscale/Funnel. Remove this once the
-# diagnosis is done; Grafana has its own login so it's safe to leave
-# briefly exposed, but it's not meant to stay here long-term (see
-# README.md's Security section).
-{$NOIP_HOSTNAME}:8444 {
-	reverse_proxy 192.168.68.107:3000
-}
-
 # ── Template for the next service ──────────────────────────────────
 # Ports 8444-8448 are already forwarded on the router (see
 # edge/README.md and docker-compose.yaml's `caddy.ports`) as a reserved
 # range, so adding a service here is the ONLY step left -- no router
 # trip needed. Uncomment, pick the next free port, fill in the backend.
 #
-# {$NOIP_HOSTNAME}:8445 {
+# {$NOIP_HOSTNAME}:8444 {
 # 	reverse_proxy <backend-tailscale-ip>:<backend-port>
 # }
