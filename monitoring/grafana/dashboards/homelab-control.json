@@ -17,13 +17,13 @@
       {
         "name": "rate_usd_kwh",
         "label": "Electricity rate (USD/kWh)",
-        "description": "Puerto Rico rates change often — edit this field and every cost panel recalculates. No redeploy needed.",
+        "description": "Puerto Rico rates change often — edit this field and every cost panel recalculates. No redeploy needed. Default last updated 2026-10-06 to LUMA's PREB-approved residential rate effective 2026-10-02 (33.86 cents/kWh, up from 28.57 cents/kWh in Jul-Sep 2026) — see https://www.elnuevodia.com/english/news/story/new-record-energy-rate-in-puerto-rico-18-increase-brings-the-cost-of-a-kilowatt-hour-to-3386-cents/",
         "type": "textbox",
         "hide": 0,
-        "query": "0.24",
+        "query": "0.3386",
         "current": {
-          "text": "0.24",
-          "value": "0.24"
+          "text": "0.3386",
+          "value": "0.3386"
         },
         "options": [],
         "skipUrlSync": false

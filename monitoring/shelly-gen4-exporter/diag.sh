@@ -17,6 +17,18 @@
 #                           combined with autorecover already being True
 #                           points at a genuine power blip to the outlet
 #                           itself, not a fixable device setting.
+#                        -> initial_state ("Power on default" in the Shelly
+#                           app). This DOES matter for a scheduled-off light
+#                           that comes back on by itself hours later: every
+#                           time the MCU reboots (including the still-
+#                           unexplained periodic blips this script's resets
+#                           counter detects), the relay snaps to whatever
+#                           this is set to. If it's "on", a schedule that
+#                           turned the light off gets silently undone by the
+#                           next reboot, no matter what time that happens to
+#                           be. Set it to "off" if the light should only ever
+#                           turn on by explicit command/schedule, never by
+#                           itself after a reboot.
 #   - Prometheus         -> resets() on the cumulative energy counter over
 #                           the last 24h, so you can tell at a glance
 #                           whether the real-cost panels are trustworthy
@@ -124,6 +136,9 @@ try:
     auto = d.get('autorecover_voltage_errors')
     flag = '  <-- if False, enable this first' if auto is False else ''
     print(f'autorecover_voltage_errors: {auto}{flag}')
+    initial = d.get('initial_state')
+    iflag = '  <-- controls what the relay does on EVERY MCU reboot, including unexplained ones; \"on\" or a bad \"restore_last\" can undo a schedule that already turned it off' if initial != 'off' else ''
+    print(f'initial_state: {initial}{iflag}')
     print(f\"voltage_limit: {d.get('voltage_limit')} V   undervoltage_limit: {d.get('undervoltage_limit')} V\")
     print(f\"power_limit: {d.get('power_limit')} W   current_limit: {d.get('current_limit')} A\")
 except json.JSONDecodeError:
