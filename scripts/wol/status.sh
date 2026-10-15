@@ -20,6 +20,10 @@ declare -A NODES=(
   [ocra]="100.107.52.17"
   [xelor]="192.168.68.114"
   [sacro]="192.168.68.115"
+  # Raw Tailscale IP, not the LAN IP — Omarchy's LAN address (192.168.68.111)
+  # is a plain DHCP lease, not a reservation, so it's addressed the same
+  # drift-proof way as Ocra above.
+  [omarchy]="100.72.211.80"
 )
 declare -A NODE_ROLES=(
   [sadida]="Proxmox VE · k3s master · Ollama (local, GPU)"
@@ -28,6 +32,7 @@ declare -A NODE_ROLES=(
   [ocra]="Brain 24/7 · Docker Compose (n8n + Hermes + postgres)"
   [xelor]="k3s worker · staging / CI (on-demand)"
   [sacro]="k3s worker · observability (on-demand)"
+  [omarchy]="Personal workstation (Omarchy/Arch) · not a k3s member"
 )
 declare -A NODE_TIER=(
   [sadida]="always"
@@ -36,6 +41,7 @@ declare -A NODE_TIER=(
   [ocra]="always"
   [xelor]="ondemand"
   [sacro]="ondemand"
+  [omarchy]="ondemand"
 )
 
 # Ollama runs locally on Sadida (host service, not a pod).
@@ -122,7 +128,7 @@ print_ollama_status() {
 main() {
   print_header
 
-  for node in sadida aery sram ocra xelor sacro; do
+  for node in sadida aery sram ocra xelor sacro omarchy; do
     check_node "$node"
   done
 

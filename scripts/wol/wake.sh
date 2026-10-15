@@ -9,6 +9,7 @@
 #   ./scripts/wol/wake.sh ocra
 #   ./scripts/wol/wake.sh aery
 #   ./scripts/wol/wake.sh sadida
+#   ./scripts/wol/wake.sh omarchy
 #   ./scripts/wol/wake.sh all
 #
 # Sadida (the Proxmox hypervisor + k3s master + GPU/Ollama host) was added
@@ -18,6 +19,16 @@
 # just doesn't come back and needs a physical power button press. Shutdown
 # for sadida stays hard-blocked in shutdown.sh regardless, independent of
 # whether wake works.
+#
+# Omarchy (seth's personal workstation, added 2026-10) is NOT on the same
+# switch as Sadida — it's wired into the router that the switch itself
+# uplinks to. This still works for WOL: the router's LAN ports and the
+# switch share the same 192.168.68.0/24 broadcast domain (confirmed —
+# Omarchy's enp6s0 has a 192.168.68.x address), so the magic packet
+# broadcast to 192.168.68.255 reaches it the same as every switch-attached
+# node. It is NOT a k3s member (personal desktop, not a cluster worker) —
+# wait_k3s_ready() below will just time out harmlessly and log a one-line
+# warning for it, same as it would for any non-cluster host.
 
 set -euo pipefail
 
@@ -47,6 +58,9 @@ declare -A NODE_MACS=(
   # poweroff (S5). Test with a real poweroff+wake round trip before relying
   # on this.
   [sadida]="08:8f:c3:59:e9:9d"
+  # enp6s0 on Omarchy (seth's personal workstation), confirmed via `ip link
+  # show`. Not bridged/virtual — the real Ethernet NIC.
+  [omarchy]="04:42:1a:f0:8b:1c"
 )
 declare -A NODE_IPS=(
   [sram]="100.87.145.104"
@@ -70,6 +84,13 @@ declare -A NODE_IPS=(
   # Raw Tailscale IP, same reasoning as every other node above — used only
   # for the ping-liveness check here.
   [sadida]="100.123.206.35"
+  # Raw Tailscale IP. Omarchy's LAN IP (192.168.68.111) is a plain DHCP
+  # lease, not a reservation — exactly the kind of drift that's the reason
+  # every other node here is addressed by Tailscale IP instead of LAN IP.
+  # Consider adding a DHCP reservation for its MAC on the router anyway
+  # (doesn't affect WOL itself, which only needs the MAC, but keeps direct
+  # LAN access predictable if you ever need it).
+  [omarchy]="100.72.211.80"
 )
 declare -A NODE_TAGS=(
   [sram]="worker 24/7"
@@ -78,6 +99,7 @@ declare -A NODE_TAGS=(
   [sacro]="on-demand · observability"
   [aery]="24/7 · Nextcloud (idle-managed)"
   [sadida]="24/7 · Proxmox + k3s master + GPU (WOL unverified)"
+  [omarchy]="on-demand · personal workstation (not a k3s node)"
 )
 
 BROADCAST="192.168.68.255"
@@ -153,7 +175,7 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all>"
   echo ""
   echo "  Available nodes:"
-  for n in sram ocra xelor sacro aery sadida; do
+  for n in sram ocra xelor sacro aery sadida omarchy; do
     local mac="${NODE_MACS[$n]:-not configured}"
     printf "    ${BLUE}%-8s${NC}  %-18s  %-20s  %s\n" \
       "$n" "${NODE_IPS[$n]}" "$mac" "${NODE_TAGS[$n]}"
@@ -178,7 +200,7 @@ main() {
 
   if [[ "$target" == "all" ]]; then
     log "Waking all workers..."
-    for node in sram ocra xelor sacro aery sadida; do
+    for node in sram ocra xelor sacro aery sadida omarchy; do
       [[ -n "${NODE_MACS[$node]}" ]] && wake_node "$node" &
     done
     wait

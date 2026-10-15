@@ -10,6 +10,7 @@
 #   ./scripts/wol/shutdown.sh ocra
 #   ./scripts/wol/shutdown.sh aery
 #   ./scripts/wol/shutdown.sh sadida   # blocked unless CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true
+#   ./scripts/wol/shutdown.sh omarchy
 #   ./scripts/wol/shutdown.sh all
 #   ./scripts/wol/shutdown.sh all --skip-drain   # fast shutdown without draining
 #   ./scripts/wol/shutdown.sh xelor --yes        # non-interactive (used by the Control API)
@@ -49,6 +50,11 @@ declare -A NODE_IPS=(
   # Raw Tailscale IP. Present here so the master-protection override below
   # can actually work — see the "Protect the master" block in main().
   [sadida]="100.123.206.35"
+  # Raw Tailscale IP — same reasoning as every node above. Personal
+  # workstation, added 2026-10. Deliberately EXCLUDED from the "all" target
+  # below (not a lab compute node — a blanket sweep shouldn't shut down
+  # seth's desktop as a side effect); shut it down explicitly by name.
+  [omarchy]="100.72.211.80"
 )
 declare -A NODE_USERS=(
   [ocra]="seth"
@@ -61,9 +67,16 @@ declare -A NODE_USERS=(
   # already logged in as root: PAM's pam_rootok.so lets root run sudo
   # without a password, so no sudoers change is needed for this node.
   [sadida]="root"
+  # Assumed "seth" to match every other node — VERIFY this is the actual
+  # login user on Omarchy and edit if it differs; this was never confirmed
+  # against the machine itself.
+  [omarchy]="seth"
 )
-# On-demand nodes (always drained before powering off)
-ON_DEMAND_NODES=(xelor sacro)
+# On-demand nodes (always drained before powering off; drain is a no-op if
+# the node was never a k3s member, like omarchy — see drain_node()/
+# k3s_node_ready() below, which already handle "not in the cluster"
+# gracefully)
+ON_DEMAND_NODES=(xelor sacro omarchy)
 
 # Sadida is the master — blocked by default (see "Protect the master" in
 # main() below). It hosts the k3s control-plane, the Ollama GPU service and
@@ -190,11 +203,12 @@ usage() {
   echo -e "  ${BOLD}Usage:${NC} $0 <node|all> [--skip-drain]"
   echo ""
   echo "  Available nodes:"
-  for n in ocra sram xelor sacro aery sadida; do
+  for n in ocra sram xelor sacro aery sadida omarchy; do
     local tag=""
     is_ondemand "$n" && tag=" ${YELLOW}(on-demand)${NC}"
     [[ "$n" == "aery" ]] && tag=" ${YELLOW}(idle-managed; excluded from 'all')${NC}"
     [[ "$n" == "sadida" ]] && tag=" ${RED}(master; blocked unless CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true)${NC}"
+    [[ "$n" == "omarchy" ]] && tag=" ${YELLOW}(personal workstation; excluded from 'all')${NC}"
     printf "    ${BLUE}%-8s${NC} →  %s%b\n" "$n" "${NODE_IPS[$n]}" "$tag"
   done
   echo ""

@@ -74,6 +74,20 @@ all:
           wol_mac: "68:f7:28:83:d6:77"
           wol_broadcast: "192.168.68.255"
 
+    # ── On-demand personal workstations (monitored + WOL, NOT k3s) ──
+    # Added 2026-10. Not plugged into the same switch as Sadida — it's on
+    # the router the switch uplinks to, but still the same flat
+    # 192.168.68.0/24 broadcast domain, so WOL still reaches it.
+    workstations_ondemand:
+      hosts:
+        omarchy:
+          # Raw Tailscale IP — the LAN IP (192.168.68.111) is a plain DHCP
+          # lease, not reserved, same drift risk documented for Ocra above.
+          ansible_host: 100.72.211.80
+          ansible_user: seth   # verify — never confirmed against the machine itself
+          wol_mac: "04:42:1a:f0:8b:1c"
+          wol_broadcast: "192.168.68.255"
+
     # ── Logical groups ───────────────────────────────────────────
     k3s_workers:
       children:
@@ -88,6 +102,7 @@ all:
         compose_brain:
         k3s_workers_permanent:
         k3s_workers_ondemand:
+        workstations_ondemand:
 
     # The k3s master runs directly on the Sadida Proxmox host (no VM).
     k3s_master:

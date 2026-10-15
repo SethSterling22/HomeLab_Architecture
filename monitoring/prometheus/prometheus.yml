@@ -80,6 +80,13 @@ scrape_configs:
           node: sacro
           tier: on_demand
           role: k3s_worker
+      # Omarchy — personal workstation, added 2026-10. Raw Tailscale IP,
+      # same reasoning as every other target here. Not a k3s member.
+      - targets: ["100.72.211.80:9100"]
+        labels:
+          node: omarchy
+          tier: on_demand
+          role: workstation
     relabel_configs:
       # Strip the port so `instance` reads as a clean hostname in panels.
       - source_labels: [__address__]
@@ -112,6 +119,9 @@ scrape_configs:
       - targets: ["100.127.196.32:9256"]
         labels:
           node: sacro
+      - targets: ["100.72.211.80:9256"]
+        labels:
+          node: omarchy
     relabel_configs:
       - source_labels: [__address__]
         regex: "([^:]+)(:[0-9]+)?"

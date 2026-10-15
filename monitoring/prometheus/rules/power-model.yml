@@ -96,6 +96,21 @@ groups:
         labels:
           node: sacro
 
+      # Omarchy — seth's personal workstation, added 2026-10. Generic
+      # desktop-class estimate (NOT calibrated, NOT even hardware-confirmed
+      # — no CPU/GPU spec on file for it yet). Raise power_max meaningfully
+      # if it has a discrete GPU; a dGPU under load easily adds 100-250W on
+      # top of these numbers, same caveat as Sadida's RTX 3050 being
+      # excluded here and added as real measured watts separately.
+      - record: node:power_idle_watts:const
+        expr: vector(30)
+        labels:
+          node: omarchy
+      - record: node:power_max_watts:const
+        expr: vector(150)
+        labels:
+          node: omarchy
+
   # ── Derived series ────────────────────────────────────────────────
   - name: power-model
     interval: 30s

@@ -22,6 +22,17 @@ Scripts for remote power management of all cluster nodes from Sadida.
 | xelor | 192.168.68.114 | 88:ae:1d:6c:e4:06 | `shutdown -h now` | No |
 | sacro | 192.168.68.115 | 68:f7:28:83:d6:77 | `systemctl suspend` | No |
 | sadida | 100.123.206.35 (Tailscale) | 08:8f:c3:59:e9:9d | `shutdown -h now` (blocked unless `CONTROL_API_ALLOW_SHUTDOWN_SADIDA=true`; WOL unverified) | Yes |
+| omarchy | 100.72.211.80 (Tailscale — LAN IP `192.168.68.111` is a plain DHCP lease, not reserved) | 04:42:1a:f0:8b:1c | `shutdown -h now` | No |
+
+> **Omarchy** is seth's personal workstation, added 2026-10. It is **not**
+> plugged into the same switch as Sadida — it connects to the router that
+> the switch itself uplinks to. This still works for WOL because both are
+> on the same flat `192.168.68.0/24` broadcast domain (no VLAN separation
+> between the router's LAN ports and the switch); a magic packet broadcast
+> to `192.168.68.255` reaches it exactly like a switch-attached node. It is
+> **not** a k3s member and is deliberately excluded from `shutdown.sh all`
+> (a blanket sweep of lab nodes shouldn't power off a personal desktop as a
+> side effect) — wake/shut it down by name instead.
 
 > **Ocra's IP is its Tailscale address, not a LAN IP.** Ocra is the only
 > WiFi-connected node here (everything else is Ethernet), and its LAN DHCP

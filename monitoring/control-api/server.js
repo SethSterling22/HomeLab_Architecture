@@ -69,6 +69,11 @@ const NODES = {
   sram: { wake: true, shutdown: true, tier: "always_on", note: "k3s worker" },
   xelor: { wake: true, shutdown: true, tier: "on_demand", note: "k3s worker (staging)" },
   sacro: { wake: true, shutdown: true, tier: "on_demand", note: "k3s worker (observability)" },
+  // Personal workstation, added 2026-10 — not a k3s member. Lowest-stakes
+  // tier here (unlike sadida/ocra/aery): worst case it's just inconvenient
+  // for seth, not a lab-wide outage, so it gets wake+shutdown enabled by
+  // default like sram/xelor/sacro rather than gated behind an env var.
+  omarchy: { wake: true, shutdown: true, tier: "on_demand", note: "personal workstation (Omarchy/Arch), not a k3s member" },
 };
 
 // Apply per-node environment overrides (CONTROL_API_ALLOW_SHUTDOWN_<NODE>).
