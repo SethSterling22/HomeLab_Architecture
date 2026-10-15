@@ -34,7 +34,12 @@
       - "--collector.processes"
 
   tasks:
-    - name: Ensure required packages are present
+    # Package manager varies across the fleet now: every node is Debian
+    # EXCEPT Omarchy (Arch, added 2026-10) — hence the os_family split below
+    # instead of a single ansible.builtin.apt task. Package names differ too
+    # (lm-sensors vs. lm_sensors). Everything after this task (binary
+    # download, systemd units, user creation) is already distro-agnostic.
+    - name: Ensure required packages are present (Debian/Ubuntu)
       ansible.builtin.apt:
         name:
           - lm-sensors      # populates hwmon so temperature metrics appear
@@ -42,6 +47,16 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Ensure required packages are present (Arch)
+      community.general.pacman:
+        name:
+          - lm_sensors
+          - curl
+        state: present
+        update_cache: true
+      when: ansible_facts['os_family'] == "Archlinux"
 
     - name: Create node_exporter system user
       ansible.builtin.user:
@@ -129,7 +144,9 @@
         daemon_reload: true
 
     - name: Allow Prometheus to scrape node_exporter over the tailnet
-      # Only applied when ufw is actually in use; skipped otherwise.
+      # ufw is Debian/Ubuntu-specific — Arch nodes (Omarchy) don't have it by
+      # default, so this is skipped there rather than relying solely on
+      # failed_when to absorb a missing-binary error.
       community.general.ufw:
         rule: allow
         port: "{{ node_exporter_port }}"
@@ -138,6 +155,7 @@
       loop:
         - "100.0.0.0/8"        # Tailscale CGNAT range
         - "192.168.68.0/24"    # LAN
+      when: ansible_facts['os_family'] == "Debian"
       failed_when: false
       changed_when: false
 
@@ -276,6 +294,7 @@
         daemon_reload: true
 
     - name: Allow Prometheus to scrape process-exporter over the tailnet
+      # Same Debian-only guard as node_exporter's ufw task above.
       community.general.ufw:
         rule: allow
         port: "{{ process_exporter_port }}"
@@ -284,6 +303,7 @@
       loop:
         - "100.0.0.0/8"
         - "192.168.68.0/24"
+      when: ansible_facts['os_family'] == "Debian"
       failed_when: false
       changed_when: false
 
