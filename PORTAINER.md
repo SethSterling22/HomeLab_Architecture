@@ -105,6 +105,49 @@ From the UI you can:
 
 ---
 
+## Managing Docker containers on Sadida, Aery, and Ocra
+
+The install above only covers the k3s cluster (the "local" Kubernetes
+environment). Sadida, Aery, and Ocra each **also** run their own standalone
+Docker containers outside k3s — those are invisible to Portainer until you
+add a separate **Agent** per host, registered as an additional "Docker"
+environment inside this same Portainer install. One Portainer server, many
+environments — you switch between them from the sidebar.
+
+### 1. Deploy the agent
+
+- **Sadida and Aery** — use `portainer/agent/docker-compose.yaml` at the
+  repo root, unmodified, on each host:
+  ```bash
+  cd portainer/agent
+  docker compose up -d
+  ```
+- **Ocra** — already covered: it's the `portainer-agent` service inside
+  `monitoring/docker-compose.yaml`, started/stopped together with the rest
+  of that stack (`docker compose up -d` there picks it up).
+
+### 2. Register each as a new environment
+
+In the Portainer UI (`https://192.168.68.10:30777`):
+
+1. **Environments → Add environment → Docker → Agent**
+2. Name it (e.g. `sadida-docker`, `aery-docker`, `ocra-docker`)
+3. Environment address: `<host's Tailscale IP>:9001`
+4. Repeat for each of the three hosts
+
+You'll end up with four environments total: the existing `local` (k3s) one,
+plus `sadida-docker`, `aery-docker`, and `ocra-docker`.
+
+### Security
+
+Port 9001 is root-equivalent access to that host's Docker daemon — the same
+risk tier as the Control API (`monitoring/control-api/`). Never forward it
+through `edge/`'s public Caddy. Keep it reachable over Tailscale/LAN only;
+for extra hardening, firewall it so only Sadida's address can reach port
+9001 on Aery and Ocra.
+
+---
+
 ## Uninstall
 
 ```bash

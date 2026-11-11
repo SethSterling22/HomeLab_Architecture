@@ -298,6 +298,31 @@ services:
     # is verified externally via the `nut-ups` Prometheus job's own `up`
     # metric.
 
+  portainer-agent:
+    # Exposes Ocra's own standalone Docker containers (this entire stack) as
+    # a Portainer "Docker" environment, alongside the Sadida/Aery agents in
+    # portainer/agent/docker-compose.yaml at the repo root. Kept HERE instead
+    # of that shared file because Ocra already has a Compose-managed stack —
+    # one `docker compose up -d` here starts/stops it with everything else.
+    #
+    # Default bridge networking is fine: unlike control-api/wake-proxy/
+    # k3s-autowake, this never needs to broadcast or reach a host-networked
+    # sibling container, only the local Docker socket.
+    #
+    # SECURITY: port 9001 is root-equivalent access to Ocra's Docker daemon —
+    # same risk tier as control-api. Tailscale/LAN reachability only, never
+    # through edge/'s public Caddy. See PORTAINER.md, "Managing Docker
+    # containers on Sadida, Aery, and Ocra".
+    image: portainer/agent:2.39.4   # pinned to match the Portainer server version
+    container_name: homelab_portainer_agent
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+      - /:/host:ro
+
 volumes:
   prometheus_data:
   grafana_data:

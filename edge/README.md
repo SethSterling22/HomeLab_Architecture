@@ -95,14 +95,61 @@ the way through to Nextcloud. If it times out: check the router port-
 forward first (most common cause), then `docker compose logs caddy` for
 ACME errors (rate limits, port 80 not actually reachable from the internet).
 
-## Adding a new service
+## Where this runs
 
-1. Copy the template block in `Caddyfile`, fill in the port and the
-   backend's **Tailscale IP** (not LAN IP — see the Caddyfile's own header
-   comment for why).
-2. Add the matching port under `caddy.ports` in `docker-compose.yaml`.
-3. Forward that port on your router to Ocra, same as step 3 above.
+Caddy (and ddclient) run on **Ocra** (100.107.52.17) — the same always-on box
+as the rest of the Docker Compose stack (`wake-proxy`, `idle-shutdown`,
+`k3s-autowake`, `control-api`). There is only one Caddy instance in this lab;
+every exposed service is a port on it, not a separate Caddy per node. This is
+why reverse_proxy targets in the Caddyfile are reached from Ocra's point of
+view — either Ocra's own Tailscale IP + a local port (when the backend is
+wake-proxy) or another node's Tailscale IP directly (when the backend is
+always-on).
+
+## Adding a new service — step by step
+
+Before touching any file, answer one question: **is the target node always-on
+or on-demand (WOL)?** That decides whether you add one hop or two.
+
+**Case A — target node is always-on** (Sram, Aery's non-Nextcloud ports, Sadida, Ocra itself):
+you reverse_proxy straight to that node's Tailscale IP. One file to touch:
+`edge/Caddyfile`.
+
+```caddyfile
+{$NOIP_HOSTNAME}:8444 {
+    reverse_proxy <node-tailscale-ip>:<service-port>
+}
+```
+
+**Case B — target node is on-demand (WOL)** (Xelor, Sacro, or any future
+sleep-when-idle node, same pattern as Aery/Nextcloud today): you cannot
+reverse_proxy to it directly — if it's asleep, the request just times out
+with nothing to wake it. It needs its own `wake-proxy`-style hop in front of
+it first (the same role `monitoring/wake-proxy/wake-proxy.js` plays for
+Aery), which: (1) sends the WOL magic packet on first request, (2) holds/
+retries the connection until the node answers, (3) rewrites the `Host`
+header to the backend's own Tailscale IP so apps with a `trusted_domains`-
+style check don't reject the proxied request. Two files to touch:
+
+- `edge/Caddyfile` — point at Ocra's own Tailscale IP + the wake-proxy's
+  listening port (NOT the target node's IP directly), e.g. the existing
+  Nextcloud block: `reverse_proxy 100.107.52.17:8093`.
+- `monitoring/docker-compose.yaml` — the `wake-proxy` service's env vars
+  (`TARGET_HOST`, `TARGET_PORT`, MAC/broadcast for WOL, the listening port
+  Caddy should point to).
+
+**Then, regardless of case:**
+
+1. Pick a free port from the already-forwarded `8444-8448` range (check
+   `Caddyfile` for ones already in use).
+2. Add that port under `caddy.ports` in `edge/docker-compose.yaml`.
+3. Forward that port on both routers (ISP gateway + Deco) to Ocra's LAN IP —
+   same as the "Router port-forwarding" step above. Skippable if you pre-
+   forwarded the whole 8444-8448 range already.
 4. `docker compose up -d --force-recreate caddy`
+5. Test from genuinely outside your LAN (mobile data, Tailscale off) — never
+   from inside your own network, which can give a false negative/positive
+   due to NAT hairpin/loopback behavior.
 
 ## Security — read this before exposing anything
 
